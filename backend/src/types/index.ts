@@ -1,4 +1,4 @@
-﻿import { Request } from 'express';
+import { Request } from 'express';
 
 // JWT Payload shape
 
@@ -16,7 +16,7 @@ export interface AuthRequest extends Request {
 }
 
 // Role enum (mirrors Prisma / DB enum)
-// export type UserRole
+export type UserRole =
   | 'ADMIN'
   | 'HR_MANAGER'
   | 'HR_PAYROLL_USER'
@@ -24,10 +24,10 @@ export interface AuthRequest extends Request {
   | 'EMPLOYEE';
 
 // Salary calculation dict
-// export type SalaryDict Record<string, number>;
+export type SalaryDict = Record<string, number>;
 
 // Standard API response helpers
-// export interface ApiSuccess<T unknown> {
+export interface ApiSuccess<T = unknown> {
   success: true;
   data:    T;
   message?: string;

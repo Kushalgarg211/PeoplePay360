@@ -1,4 +1,4 @@
-﻿import { Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import { AuthRequest, UserRole } from '../types';
 
 // Role hierarchy weight — higher value = more permissions
@@ -33,7 +33,7 @@ export const requireRole = (allowedRoles: UserRole[]) => {
 // Convenience guard sets aligned to the RBAC matrix
 export const isAdmin           = requireRole(['ADMIN']);
 export const isHROrAbove       = requireRole(['ADMIN', 'HR_MANAGER', 'HR_PAYROLL_USER', 'HR_PAYROLL_MANAGER']);
-export const isPayrollOrAbove  = requireRole(['ADMIN', 'HR_PAYROLL_USER', 'HR_PAYROLL_MANAGER']);
+export const isPayrollOrAbove  = requireRole(['ADMIN', 'HR_MANAGER', 'HR_PAYROLL_USER', 'HR_PAYROLL_MANAGER']);
 export const isPayrollManager  = requireRole(['ADMIN', 'HR_PAYROLL_MANAGER']);
 export const isAuthenticated   = requireRole(['ADMIN', 'HR_MANAGER', 'HR_PAYROLL_USER', 'HR_PAYROLL_MANAGER', 'EMPLOYEE']);
 

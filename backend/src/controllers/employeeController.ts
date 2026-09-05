@@ -1,4 +1,4 @@
-﻿import { Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import prisma from '../config/database';
 import { AuthRequest } from '../types';
@@ -10,6 +10,55 @@ const EMPLOYEE_SELECT = {
   bankAccountNumber: true, bankName: true, bankIfsc: true, createdAt: true,
   department: { select: { id: true, name: true } },
   manager:    { select: { id: true, firstName: true, lastName: true } },
+};
+
+// GET /api/v1/employees/departments
+export const listDepartments = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const depts = await prisma.department.findMany({
+      orderBy: { name: 'asc' },
+    });
+    // Attach employee count to each department
+    const withCounts = await Promise.all(
+      depts.map(async (d) => ({
+        ...d,
+        employeeCount: await prisma.employee.count({ where: { departmentId: d.id } }),
+      }))
+    );
+    res.json({ success: true, data: withCounts });
+  } catch (err) { next(err); }
+};
+
+// POST /api/v1/employees/departments
+export const createDepartment = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { name } = req.body as { name: string };
+    if (!name?.trim()) throw createError('Department name is required', 400);
+
+    const existing = await prisma.department.findFirst({ where: { name: { equals: name.trim() } } });
+    if (existing) throw createError('A department with this name already exists', 409);
+
+    const dept = await prisma.department.create({
+      data: { id: uuidv4(), name: name.trim() },
+    });
+    res.status(201).json({ success: true, data: { ...dept, employeeCount: 0 } });
+  } catch (err) { next(err); }
+};
+
+// PUT /api/v1/employees/departments/:id
+export const updateDepartment = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body as { name: string };
+    if (!name?.trim()) throw createError('Department name is required', 400);
+
+    const dept = await prisma.department.update({
+      where: { id },
+      data:  { name: name.trim() },
+    });
+    const employeeCount = await prisma.employee.count({ where: { departmentId: id } });
+    res.json({ success: true, data: { ...dept, employeeCount } });
+  } catch (err) { next(err); }
 };
 
 // GET /api/v1/employees

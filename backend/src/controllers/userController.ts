@@ -22,24 +22,66 @@ export const listUsers = async (req: AuthRequest, res: Response, next: NextFunct
 // POST /api/v1/users
 export const createUser = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { email, password, role, employeeId, status } = req.body as {
+    const {
+      email, password, role, employeeId, status,
+      // Employee profile fields (used when role=EMPLOYEE and no existing employeeId)
+      firstName, lastName, departmentId, jobPosition, workLocation, companyName,
+    } = req.body as {
       email: string; password: string; role: string; employeeId?: string; status?: string;
+      firstName?: string; lastName?: string; departmentId?: string;
+      jobPosition?: string; workLocation?: string; companyName?: string;
     };
+
     if (!email || !password || !role) throw createError('email, password and role are required', 400);
 
     const exists = await prisma.user.findUnique({ where: { email } });
     if (exists) throw createError('Email already in use', 409);
 
     const hash = await bcrypt.hash(password, 10);
+
+    // Resolve the employee to link
+    let resolvedEmployeeId = employeeId ?? null;
+
+    // If no existing employee is linked and employee details were provided, create the record
+    if (!resolvedEmployeeId && firstName && lastName) {
+      const emp = await prisma.employee.create({
+        data: {
+          id:          uuidv4(),
+          firstName:   firstName.trim(),
+          lastName:    lastName.trim(),
+          workEmail:   email.trim(),
+          departmentId: departmentId || null,
+          jobPosition: jobPosition || 'Employee',
+          workLocation: workLocation || 'Mumbai',
+          companyName:  companyName  || 'OxP Pvt Ltd',
+          status:      'Active',
+        },
+      });
+      resolvedEmployeeId = emp.id;
+    }
+
     const user = await prisma.user.create({
       data: {
         id: uuidv4(), email, passwordHash: hash,
         role:       role as any,
         status:     (status ?? 'ACTIVE') as any,
-        employeeId: employeeId ?? null,
+        employeeId: resolvedEmployeeId,
+      },
+      include: { employee: { select: { id: true, firstName: true, lastName: true } } },
+    });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id:         user.id,
+        email:      user.email,
+        role:       user.role,
+        employeeId: user.employeeId,
+        name: user.employee
+          ? `${user.employee.firstName} ${user.employee.lastName}`
+          : email,
       },
     });
-    res.status(201).json({ success: true, data: { id: user.id, email: user.email, role: user.role } });
   } catch (err) { next(err); }
 };
 

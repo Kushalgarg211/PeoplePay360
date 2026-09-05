@@ -19,16 +19,27 @@ export const getDashboardMetrics = async (req: AuthRequest, res: Response, next:
       periodEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     }
 
-    // 1. Total Net Salary Paid
+    // 1. Total Net Salary Paid — match payruns whose period overlaps the selected month
     const paidSlips = await prisma.payslip.findMany({
-      where: { payrun: { status: 'Paid', periodStart: { gte: periodStart }, periodEnd: { lte: periodEnd } } },
+      where: {
+        payrun: {
+          status:      'Paid',
+          periodStart: { lte: periodEnd },
+          periodEnd:   { gte: periodStart },
+        },
+      },
       select: { netSalary: true, status: true },
     });
     const totalNetSalaryPaid = paidSlips.reduce((s, p) => s + Number(p.netSalary), 0);
 
-    // 2. Payslips count breakdown
+    // 2. Payslips count breakdown — same period overlap
     const allSlips = await prisma.payslip.findMany({
-      where: { payrun: { periodStart: { gte: periodStart }, periodEnd: { lte: periodEnd } } },
+      where: {
+        payrun: {
+          periodStart: { lte: periodEnd },
+          periodEnd:   { gte: periodStart },
+        },
+      },
       select: { status: true, warnings: true },
     });
     const payslipsGenerated = {
@@ -84,7 +95,7 @@ export const getDashboardMetrics = async (req: AuthRequest, res: Response, next:
       const ms = new Date(d.getFullYear(), d.getMonth(), 1);
       const me = new Date(d.getFullYear(), d.getMonth() + 1, 0);
       const agg = await prisma.payslip.aggregate({
-        where: { payrun: { status: 'Paid', periodStart: { gte: ms }, periodEnd: { lte: me } } },
+        where: { payrun: { status: 'Paid', periodStart: { lte: me }, periodEnd: { gte: ms } } },
         _sum: { netSalary: true },
       });
       monthlyNetSalaryTrend.push({
