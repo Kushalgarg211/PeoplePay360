@@ -5,7 +5,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
-import { mockAttendance, mockEmployees } from '../../data/mockData';
+import api from '../../lib/api';
 import type { AttendanceRecord, AttendanceStatus } from '../../types';
 import { formatDate, getInitials } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -14,10 +14,9 @@ import { hasPermission } from '../../lib/rbac';
 type View = 'list' | 'detail';
 
 const statusConfig: Record<string, { variant: 'success' | 'warning' | 'danger' | 'default'; label: string }> = {
-  present:  { variant: 'success', label: 'Present' },
-  late:     { variant: 'warning', label: 'Late' },
-  absent:   { variant: 'danger',  label: 'Absent' },
-  half_day: { variant: 'default', label: 'Half Day' },
+  present: { variant: 'success', label: 'Present' },
+  late:    { variant: 'warning', label: 'Late'    },
+  absent:  { variant: 'danger',  label: 'Absent'  },
 };
 
 function calcHours(checkIn?: string, checkOut?: string): number {
@@ -33,15 +32,18 @@ export function AttendancePage() {
   const filterEmployeeId = searchParams.get('employeeId');
   const canEdit = user && hasPermission(user.role, 'edit:attendance');
 
-  const [records, setRecords] = useState<AttendanceRecord[]>(mockAttendance);
+  const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [todayOnly, setTodayOnly] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(null);
   const [view, setView] = useState<View>('list');
   const [editing, setEditing] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [formError, setFormError] = useState('');
   const [form, setForm] = useState({
-    employeeId: mockEmployees[0]?.id ?? '',
+    employeeId: '',
     date: new Date().toISOString().slice(0, 10),
     checkIn: '09:00',
     checkOut: '18:00',
@@ -51,12 +53,58 @@ export function AttendancePage() {
 
   const today = new Date().toISOString().split('T')[0];
 
+  React.useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      const isEmployee = user?.role === 'employee';
+
+      const [attRes, empRes] = await Promise.all([
+        api.get('/attendance'),
+        // Employees can only see their own data — skip the full employee list
+        isEmployee ? Promise.resolve({ data: { data: [] } }) : api.get('/employees'),
+      ]);
+      const emps = empRes.data.data;
+      // Map backend attendance shape → frontend AttendanceRecord shape
+      const mapped = (attRes.data.data as any[]).map((a) => ({
+        ...a,
+        workedHours:  a.workedHours  != null ? Number(a.workedHours)  : null,
+        overtime:     a.overtimeHours != null ? Number(a.overtimeHours) : null,
+        isManuallyEdited: a.isManualCorrection,
+        auditNotes:   a.notes,
+        employee: a.employee
+          ? {
+              fullName:   `${a.employee.firstName} ${a.employee.lastName}`,
+              avatarUrl:  `https://api.dicebear.com/7.x/avataaars/svg?seed=${a.employee.id}`,
+              department: a.employee.department ?? null,
+            }
+          : { fullName: 'Unknown', avatarUrl: undefined, department: null },
+        checkIn:  a.checkIn  ? new Date(a.checkIn).toTimeString().slice(0,5)  : undefined,
+        checkOut: a.checkOut ? new Date(a.checkOut).toTimeString().slice(0,5) : undefined,
+        date:     a.date ? new Date(a.date).toISOString().split('T')[0] : a.date,
+      }));
+      setRecords(mapped);
+      setEmployees(emps);
+      // Pre-fill employeeId with the first employee so Create button always works
+      if (emps.length > 0) {
+        setForm((f) => ({ ...f, employeeId: f.employeeId || emps[0].id }));
+      }
+    } catch (err) {
+      console.error('Failed to fetch attendance data', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const filtered = records
     .filter((a) => !filterEmployeeId || a.employeeId === filterEmployeeId)
-    .filter((a) => !todayOnly || a.date === today)
-    .filter((a) => !search || a.employee.fullName.toLowerCase().includes(search.toLowerCase()));
+    .filter((a) => !todayOnly || (a.date && a.date.startsWith(today)))
+    .filter((a) => !search || (a.employee && a.employee.fullName.toLowerCase().includes(search.toLowerCase())));
 
-  const filterEmployee = filterEmployeeId ? mockEmployees.find((e) => e.id === filterEmployeeId) : null;
+  const filterEmployee = filterEmployeeId ? employees.find((e) => e.id === filterEmployeeId) : null;
 
   const openDetail = (record: AttendanceRecord) => {
     setSelectedRecord({ ...record });
@@ -64,42 +112,72 @@ export function AttendancePage() {
     setView('detail');
   };
 
-  const saveDetail = () => {
+  const saveDetail = async () => {
     if (!selectedRecord) return;
-    const hours = calcHours(selectedRecord.checkIn, selectedRecord.checkOut);
-    const updated = {
-      ...selectedRecord,
-      workedHours: hours,
-      overtime: Math.max(0, hours - 8),
-      isManuallyEdited: true,
-    };
-    setRecords((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
-    setSelectedRecord(updated);
-    setEditing(false);
+    try {
+      await api.put(`/attendance/${selectedRecord.id}`, {
+        checkIn: selectedRecord.checkIn,
+        checkOut: selectedRecord.checkOut,
+        status: selectedRecord.status,
+        notes: selectedRecord.auditNotes,
+      });
+      await fetchData();
+      setEditing(false);
+    } catch (err) {
+      console.error('Failed to update attendance', err);
+    }
   };
 
-  const createRecord = () => {
-    const emp = mockEmployees.find((e) => e.id === form.employeeId);
-    if (!emp) return;
-    const hours = calcHours(form.checkIn, form.checkOut);
-    const created: AttendanceRecord = {
-      id: `a${Date.now()}`,
-      employeeId: emp.id,
-      employee: { fullName: emp.fullName, avatarUrl: emp.avatarUrl, department: emp.department },
-      date: form.date,
-      checkIn: form.status === 'absent' ? undefined : form.checkIn,
-      checkOut: form.status === 'absent' ? undefined : form.checkOut,
-      workedHours: form.status === 'absent' ? 0 : hours,
-      overtime: form.status === 'absent' ? 0 : Math.max(0, hours - 8),
-      status: form.status,
-      isManuallyEdited: true,
-      auditNotes: form.notes || 'Manually created by an authorized user.',
-      managerName: emp.managerName,
-      managerId: emp.managerId,
-    };
-    setRecords((prev) => [created, ...prev]);
-    setNewOpen(false);
-    openDetail(created);
+  // Map lowercase frontend status → Prisma enum (Present | Late | Absent)
+  const STATUS_MAP: Record<string, string> = { present: 'Present', late: 'Late', absent: 'Absent' };
+
+  const openNew = () => {
+    setFormError('');
+    setForm({
+      employeeId: employees[0]?.id ?? '',
+      date: today,
+      checkIn: '09:00',
+      checkOut: '18:00',
+      status: 'present',
+      notes: '',
+    });
+    setNewOpen(true);
+  };
+
+  const createRecord = async () => {
+    setFormError('');
+
+    if (!form.employeeId) {
+      setFormError('Please select an employee.');
+      return;
+    }
+    if (!form.date) {
+      setFormError('Please select a date.');
+      return;
+    }
+    if (form.date > today) {
+      setFormError('Attendance cannot be recorded for a future date.');
+      return;
+    }
+
+    const mappedStatus = STATUS_MAP[form.status] ?? 'Present';
+    const isAbsent = form.status === 'absent';
+
+    try {
+      await api.post('/attendance', {
+        employeeId: form.employeeId,
+        date:       form.date,
+        checkIn:    isAbsent ? undefined : form.checkIn,
+        checkOut:   isAbsent ? undefined : form.checkOut,
+        status:     mappedStatus,
+        notes:      form.notes || 'Manually created by an authorized user.',
+      });
+      setNewOpen(false);
+      await fetchData();
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Failed to create record.';
+      setFormError(msg);
+    }
   };
 
   const columns: Column<AttendanceRecord>[] = [
@@ -129,14 +207,16 @@ export function AttendancePage() {
     {
       key: 'status', header: 'Status',
       render: (_, a) => {
-        const cfg = statusConfig[a.status];
+        const safeStatus = (a.status || '').toLowerCase();
+        const cfg = statusConfig[safeStatus] || { variant: 'default', label: a.status || 'Unknown' };
         return <Badge variant={cfg.variant} dot>{cfg.label}</Badge>;
       },
     },
   ];
 
   if (view === 'detail' && selectedRecord) {
-    const cfg = statusConfig[selectedRecord.status];
+    const safeStatus = (selectedRecord.status || '').toLowerCase();
+    const cfg = statusConfig[safeStatus] || { variant: 'default', label: selectedRecord.status || 'Unknown' };
     return (
       <div className="space-y-4 animate-fade-in max-w-3xl">
         <div className="flex items-center justify-between">
@@ -225,13 +305,17 @@ export function AttendancePage() {
     <div className="space-y-4 animate-fade-in">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Attendance</h1>
+          <h1 className="page-title">{user?.role === 'employee' ? 'My Attendance' : 'Attendance'}</h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            {filterEmployee ? `Showing records for ${filterEmployee.fullName}` : 'List view of employee attendance records.'}
+            {user?.role === 'employee'
+              ? 'Your personal attendance records.'
+              : filterEmployee
+                ? `Showing records for ${filterEmployee.firstName} ${filterEmployee.lastName}`
+                : 'List view of employee attendance records.'}
           </p>
         </div>
         {canEdit && (
-          <button className="btn-primary" onClick={() => setNewOpen(true)}>
+          <button className="btn-primary" onClick={openNew}>
             <Plus size={14} /> New
           </button>
         )}
@@ -260,45 +344,119 @@ export function AttendancePage() {
         </button>
         {filterEmployee && (
           <span className="px-3 py-2 text-xs font-medium rounded-md border bg-indigo-50 text-indigo-700 border-indigo-200">
-            Employee: {filterEmployee.fullName}
+            Employee: {filterEmployee.firstName} {filterEmployee.lastName}
           </span>
         )}
       </div>
 
-      <DataTable columns={columns} data={filtered} rowKey={(a) => a.id} onRowClick={openDetail} />
+      {isLoading ? (
+        <div className="py-12 flex justify-center">
+          <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
+        </div>
+      ) : (
+        <DataTable columns={columns} data={filtered} rowKey={(a) => a.id} onRowClick={openDetail} />
+      )}
 
       <Modal isOpen={newOpen} onClose={() => setNewOpen(false)} title="New Attendance Record" size="md">
-        <div className="p-5 space-y-4">
+        {/* Body */}
+        <div className="px-5 pt-4 pb-2 space-y-4">
+
+          {/* Inline error banner */}
+          {formError && (
+            <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-200 px-3 py-2.5">
+              <span className="mt-0.5 text-red-500 shrink-0">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm-.75 3.75a.75.75 0 011.5 0v3.5a.75.75 0 01-1.5 0v-3.5zm.75 7a.875.875 0 110-1.75.875.875 0 010 1.75z"/></svg>
+              </span>
+              <p className="text-xs text-red-700">{formError}</p>
+            </div>
+          )}
+
+          {/* Employee */}
           <div>
             <label className="label">Employee</label>
-            <select className="input-field" value={form.employeeId} onChange={(e) => setForm((f) => ({ ...f, employeeId: e.target.value }))}>
-              {mockEmployees.map((e) => <option key={e.id} value={e.id}>{e.fullName}</option>)}
+            <select
+              className="input-field"
+              value={form.employeeId}
+              onChange={(e) => { setFormError(''); setForm((f) => ({ ...f, employeeId: e.target.value })); }}
+            >
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>
+              ))}
             </select>
           </div>
+
+          {/* Date */}
           <div>
             <label className="label">Date</label>
-            <input type="date" className="input-field" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
+            <input
+              type="date"
+              className="input-field"
+              value={form.date}
+              max={today}
+              onChange={(e) => { setFormError(''); setForm((f) => ({ ...f, date: e.target.value })); }}
+            />
+            <p className="text-xs text-slate-400 mt-1">Future dates are not allowed.</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">Check In</label>
-              <input type="time" className="input-field" value={form.checkIn} onChange={(e) => setForm((f) => ({ ...f, checkIn: e.target.value }))} />
-            </div>
-            <div>
-              <label className="label">Check Out</label>
-              <input type="time" className="input-field" value={form.checkOut} onChange={(e) => setForm((f) => ({ ...f, checkOut: e.target.value }))} />
-            </div>
-          </div>
+
+          {/* Status */}
           <div>
             <label className="label">Status</label>
-            <select className="input-field" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as AttendanceStatus }))}>
-              {Object.entries(statusConfig).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            <select
+              className="input-field"
+              value={form.status}
+              onChange={(e) => { setFormError(''); setForm((f) => ({ ...f, status: e.target.value as AttendanceStatus })); }}
+            >
+              {Object.entries(statusConfig).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
             </select>
           </div>
-          <div className="flex justify-end gap-2">
-            <button className="btn-secondary" onClick={() => setNewOpen(false)}>Cancel</button>
-            <button className="btn-primary" onClick={createRecord}>Create</button>
+
+          {/* Check-in / Check-out — hidden when Absent */}
+          {form.status !== 'absent' && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Check In</label>
+                <input
+                  type="time"
+                  className="input-field"
+                  value={form.checkIn}
+                  onChange={(e) => setForm((f) => ({ ...f, checkIn: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="label">Check Out</label>
+                <input
+                  type="time"
+                  className="input-field"
+                  value={form.checkOut}
+                  onChange={(e) => setForm((f) => ({ ...f, checkOut: e.target.value }))}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Notes */}
+          <div>
+            <label className="label">Notes <span className="text-slate-400 font-normal">(optional)</span></label>
+            <textarea
+              rows={2}
+              className="input-field resize-none"
+              value={form.notes}
+              placeholder="Reason for manual entry…"
+              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+            />
           </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-100 bg-slate-50/50">
+          <button className="btn-secondary" onClick={() => setNewOpen(false)}>
+            <X size={13} /> Cancel
+          </button>
+          <button className="btn-primary" onClick={createRecord}>
+            <Plus size={13} /> Create
+          </button>
         </div>
       </Modal>
     </div>

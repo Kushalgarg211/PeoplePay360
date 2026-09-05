@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import api from '../lib/api';
+import { useAuth } from './AuthContext';
 
 interface AttendanceContextValue {
   isCheckedIn: boolean;
@@ -7,15 +9,21 @@ interface AttendanceContextValue {
   checkIn: () => void;
   checkOut: () => void;
   formattedElapsed: string;
+  attendanceError: string | null;
+  clearAttendanceError: () => void;
 }
 
 const AttendanceContext = createContext<AttendanceContextValue | null>(null);
 
 export function AttendanceProvider({ children }: { children: React.ReactNode }) {
-  const [isCheckedIn, setIsCheckedIn] = useState(false);
-  const [checkInTime, setCheckInTime] = useState<Date | null>(null);
+  const { token, user } = useAuth();
+  const [isCheckedIn, setIsCheckedIn]       = useState(false);
+  const [checkInTime, setCheckInTime]       = useState<Date | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearAttendanceError = useCallback(() => setAttendanceError(null), []);
 
   const startTimer = useCallback((from: Date) => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -24,34 +32,71 @@ export function AttendanceProvider({ children }: { children: React.ReactNode }) 
     }, 1000);
   }, []);
 
-  // Restore from session
+  // Restore from backend only when logged in with a valid token
   useEffect(() => {
-    const stored = localStorage.getItem('pp360_checkin');
-    if (stored) {
-      const t = new Date(stored);
+    if (!token || !user) {
+      setIsCheckedIn(false);
+      setCheckInTime(null);
+      setElapsedSeconds(0);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      return;
+    }
+
+    let isMounted = true;
+
+    api.get('/attendance/today-status').then((res) => {
+      if (!isMounted) return;
+      const { record } = res.data?.data || {};
+      if (record && !record.checkOut) {
+        const t = new Date(record.checkIn);
+        setIsCheckedIn(true);
+        setCheckInTime(t);
+        setElapsedSeconds(Math.floor((Date.now() - t.getTime()) / 1000));
+        startTimer(t);
+      }
+    }).catch(() => {
+      // Silently ignore — user may not have an employee record linked
+    });
+
+    return () => {
+      isMounted = false;
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [token, user?.id, startTimer]);
+
+  const checkIn = useCallback(async () => {
+    try {
+      const res = await api.post('/attendance/check-in');
+      const data = res.data.data;
+      const t = new Date(data.checkIn);
       setIsCheckedIn(true);
       setCheckInTime(t);
       setElapsedSeconds(Math.floor((Date.now() - t.getTime()) / 1000));
       startTimer(t);
+      setAttendanceError(null);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Check-in failed. Please try again.';
+      console.error('Check-in failed', err);
+      setAttendanceError(msg); // Show in UI, not alert()
     }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [startTimer]);
 
-  const checkIn = useCallback(() => {
-    const now = new Date();
-    setIsCheckedIn(true);
-    setCheckInTime(now);
-    setElapsedSeconds(0);
-    localStorage.setItem('pp360_checkin', now.toISOString());
-    startTimer(now);
-  }, [startTimer]);
-
-  const checkOut = useCallback(() => {
-    setIsCheckedIn(false);
-    setCheckInTime(null);
-    setElapsedSeconds(0);
-    localStorage.removeItem('pp360_checkin');
-    if (timerRef.current) clearInterval(timerRef.current);
+  const checkOut = useCallback(async () => {
+    try {
+      await api.post('/attendance/check-out');
+      setIsCheckedIn(false);
+      setCheckInTime(null);
+      setElapsedSeconds(0);
+      if (timerRef.current) clearInterval(timerRef.current);
+      setAttendanceError(null);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Check-out failed. Please try again.';
+      console.error('Check-out failed', err);
+      setAttendanceError(msg); // Show in UI, not alert()
+    }
   }, []);
 
   const formattedElapsed = (() => {
@@ -63,7 +108,10 @@ export function AttendanceProvider({ children }: { children: React.ReactNode }) 
   })();
 
   return (
-    <AttendanceContext.Provider value={{ isCheckedIn, checkInTime, elapsedSeconds, checkIn, checkOut, formattedElapsed }}>
+    <AttendanceContext.Provider value={{
+      isCheckedIn, checkInTime, elapsedSeconds, checkIn, checkOut,
+      formattedElapsed, attendanceError, clearAttendanceError,
+    }}>
       {children}
     </AttendanceContext.Provider>
   );

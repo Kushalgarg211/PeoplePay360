@@ -29,7 +29,15 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('pp360_token');
       localStorage.removeItem('pp360_user');
-      window.location.href = '/login';
+      const currentPath = window.location.pathname;
+      const isAuthRoute =
+        currentPath.startsWith('/login') ||
+        currentPath.startsWith('/forgot-password') ||
+        currentPath.startsWith('/reset-password');
+      const isAuthApi = error.config?.url?.includes('/auth/');
+      if (!isAuthRoute && !isAuthApi) {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

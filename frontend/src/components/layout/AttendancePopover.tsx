@@ -1,12 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { LogIn, LogOut, Timer } from 'lucide-react';
+import { LogIn, LogOut, Timer, AlertCircle, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAttendance } from '../../context/AttendanceContext';
 import { cn } from '../../lib/utils';
 
 export function AttendancePopover() {
   const { user } = useAuth();
-  const { isCheckedIn, checkInTime, formattedElapsed, checkIn, checkOut } = useAttendance();
+  const {
+    isCheckedIn, checkInTime, formattedElapsed, checkIn, checkOut,
+    attendanceError, clearAttendanceError,
+  } = useAttendance();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -18,9 +21,14 @@ export function AttendancePopover() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  // Auto-open popover when there's an error so user sees the message
+  useEffect(() => {
+    if (attendanceError) setOpen(true);
+  }, [attendanceError]);
+
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
   const dateStr = now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+  const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
   return (
     <div ref={ref} className="relative">
@@ -56,6 +64,17 @@ export function AttendancePopover() {
               Welcome back, {user?.name?.split(' ')[0]}
             </p>
 
+            {/* Inline error banner — replaces alert() */}
+            {attendanceError && (
+              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-md px-3 py-2.5 mb-3">
+                <AlertCircle size={13} className="text-red-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700 flex-1">{attendanceError}</p>
+                <button onClick={clearAttendanceError} className="text-red-400 hover:text-red-600 shrink-0">
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+
             {isCheckedIn && checkInTime ? (
               <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2.5 mb-4">
                 <Timer size={14} className="text-emerald-600 shrink-0" />
@@ -83,7 +102,7 @@ export function AttendancePopover() {
                 'w-full flex items-center justify-center gap-2 py-2 rounded-md text-sm font-semibold transition-colors',
                 isCheckedIn
                   ? 'bg-red-600 hover:bg-red-700 text-white'
-                  : 'bg-primary-600 hover:bg-primary-700 text-white'
+                  : 'bg-[#6B3A7D] hover:bg-[#2D1457] text-white'
               )}
             >
               {isCheckedIn ? <LogOut size={14} /> : <LogIn size={14} />}
