@@ -46,30 +46,30 @@ function NavDropdown({
         onClick={() => setOpen((v) => !v)}
         className={`flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
           isActive
-            ? 'bg-primary-50 text-primary-700'
-            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            ? 'bg-primary-700 text-white'
+            : 'text-primary-100 hover:bg-primary-800 hover:text-white'
         }`}
       >
         {label}
         <ChevronDown
-          size={13}
+          size={14}
           className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
         />
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-52 bg-white border border-slate-200 rounded-lg shadow-dropdown z-50 py-1 animate-fade-in">
+        <div className="absolute top-full left-0 mt-1 w-52 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 z-50 py-1 animate-fade-in">
           {items.map((item, idx) => (
             <React.Fragment key={item.to}>
-              {item.divider && idx > 0 && <div className="my-1 border-t border-slate-100" />}
+              {item.divider && idx > 0 && <div className="my-1 border-t border-gray-100" />}
               <NavLink
                 to={item.to}
                 onClick={() => setOpen(false)}
                 className={({ isActive: linkActive }) =>
                   `flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
                     linkActive
-                      ? 'bg-primary-50 text-primary-700 font-medium'
-                      : 'text-slate-700 hover:bg-slate-50'
+                      ? 'bg-primary-50 text-primary-600 font-medium'
+                      : 'text-gray-700 hover:bg-primary-50 hover:text-primary-600'
                   }`
                 }
               >
@@ -108,7 +108,7 @@ function UserMenu() {
       <button
         id="user-menu-btn"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-100 transition-colors"
+        className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-primary-800 transition-colors"
       >
         <div className="w-7 h-7 rounded-full bg-primary-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
           {user?.avatarUrl
@@ -117,10 +117,10 @@ function UserMenu() {
           }
         </div>
         <div className="hidden md:block text-left">
-          <p className="text-xs font-semibold text-slate-900 leading-none">{user?.name}</p>
-          <p className="text-xs text-slate-400 mt-0.5">{getRoleLabel(user?.role ?? 'employee')}</p>
+          <p className="text-xs font-semibold text-white leading-none">{user?.name}</p>
+          <p className="text-xs text-primary-200 mt-0.5">{getRoleLabel(user?.role ?? 'employee')}</p>
         </div>
-        <ChevronDown size={13} className={`text-slate-400 hidden md:block transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={13} className={`text-primary-200 hidden md:block transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
@@ -164,12 +164,13 @@ export function Topbar() {
     employeeItems.push({ label: 'Employees', to: '/employees', icon: Users });
     employeeItems.push({ label: 'Contracts', to: '/contracts', icon: FileText });
     employeeItems.push({ label: 'Departments', to: '/departments', icon: Building2 });
-    employeeItems.push({ label: 'Working Schedules', to: '/contracts/schedules', icon: Calendar });
+    employeeItems.push({ label: 'Working Schedule', to: '/schedules', icon: Calendar });
   }
 
   const timeOffItems: DropdownItem[] = [];
   if (can('view:timeoff')) {
-    timeOffItems.push({ label: 'Requests', to: '/time-off/requests', icon: ClipboardList });
+    timeOffItems.push({ label: 'Dashboard', to: '/time-off/dashboard', icon: BarChart3 });
+    timeOffItems.push({ label: 'Time Off Requests', to: '/time-off/requests', icon: ClipboardList });
     timeOffItems.push({ label: 'Allocations', to: '/time-off/allocations', icon: CalendarDays });
     timeOffItems.push({ label: 'Time Off Types', to: '/time-off/types', icon: List });
   }
@@ -182,8 +183,8 @@ export function Topbar() {
       payrollItems.push({ label: 'Payslips', to: '/payroll/payslips', icon: Receipt });
     }
     if (can('view:salary_structures')) {
-      payrollItems.push({ label: 'Structures', to: '/payroll/salary-structures', icon: BookOpen, divider: true });
-      payrollItems.push({ label: 'Rules', to: '/payroll/salary-rules', icon: BookMarked });
+      payrollItems.push({ label: 'Structures', to: '/payroll/structures', icon: BookOpen });
+      payrollItems.push({ label: 'Rules', to: '/payroll/rules', icon: BookMarked });
     }
   }
 
@@ -191,17 +192,14 @@ export function Topbar() {
   const isEmployeeRole = role === 'employee';
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-30 h-14 bg-white border-b border-slate-200 flex items-center px-4 gap-2">
+    <header className="sticky top-0 z-30 h-14 bg-primary-900 border-b border-primary-800 flex items-center px-4 gap-2">
       {/* Brand */}
       <NavLink to="/" className="flex items-center gap-2 shrink-0 mr-3">
-        <div className="w-7 h-7 gradient-brand rounded-md flex items-center justify-center shadow-sm">
-          <span className="text-white font-bold text-sm">P</span>
-        </div>
-        <span className="text-sm font-bold text-slate-900 hidden sm:block">PeoplePay360</span>
+        <span className="text-lg font-bold text-white hidden sm:block">PeoplePay360</span>
       </NavLink>
 
       {/* Navigation */}
-      <nav className="flex items-center gap-0.5 flex-1 overflow-x-auto hide-scrollbar">
+      <nav className="flex items-center gap-0.5 flex-1 overflow-visible flex-wrap">
         {isEmployeeRole ? (
           /* Employee self-service nav */
           <>
@@ -238,9 +236,8 @@ export function Topbar() {
               <NavDropdown label="Employees" items={employeeItems} isActive={employeesActive} />
             )}
             {can('view:attendance') && (
-              <NavLink to="/attendance" className={({ isActive }) => `nav-item ${isActive ? 'nav-active' : ''}`}>
-                <Clock size={14} />
-                <span className="hidden lg:block">Attendance</span>
+              <NavLink to="/attendance" className={({ isActive }) => `flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${isActive ? 'bg-primary-700 text-white' : 'text-primary-100 hover:bg-primary-800 hover:text-white'}`}>
+                Attendance
               </NavLink>
             )}
             {timeOffItems.length > 0 && (
@@ -250,9 +247,8 @@ export function Topbar() {
               <NavDropdown label="Payroll" items={payrollItems} isActive={payrollActive} />
             )}
             {role === 'admin' && (
-              <NavLink to="/admin/users" className={({ isActive }) => `nav-item ${isActive ? 'nav-active' : ''}`}>
-                <Settings size={14} />
-                <span className="hidden lg:block">Users</span>
+              <NavLink to="/admin/users" className={({ isActive }) => `flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${isActive ? 'bg-primary-700 text-white' : 'text-primary-100 hover:bg-primary-800 hover:text-white'}`}>
+                Users
               </NavLink>
             )}
           </>

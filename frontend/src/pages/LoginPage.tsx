@@ -4,7 +4,7 @@ import { Eye, EyeOff, Loader2, Users, TrendingUp, Shield, Clock } from 'lucide-r
 import { useAuth } from '../context/AuthContext';
 import { demoAccounts } from '../data/mockData';
 import { getRoleLabel } from '../lib/rbac';
-import heroImg from '../assets/hero.png';
+import heroImg from '../assets/images.jpg';
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -37,42 +37,28 @@ export function LoginPage() {
   return (
     <div className="min-h-screen flex">
       {/* ── Left: Image panel ─────────────────────────────────────────── */}
-      <div className="hidden lg:flex lg:w-[52%] relative overflow-hidden gradient-brand flex-col">
-        {/* Overlay pattern */}
-        <div
-          className="absolute inset-0 opacity-10"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M0 40L40 0H20L0 20M40 40V20L20 40'/%3E%3C/g%3E%3C/svg%3E")`,
-          }}
-        />
+      <div 
+        className="hidden lg:flex lg:w-[52%] relative overflow-hidden flex-col bg-cover bg-center"
+        style={{ backgroundImage: `url(${heroImg})` }}
+      >
+        {/* Dark Overlay */}
+        <div className="absolute inset-0 bg-primary-900/80" />
 
         <div className="relative z-10 flex flex-col h-full p-12">
           {/* Brand */}
           <div className="flex items-center gap-3 mb-12">
-            <div className="w-9 h-9 bg-white/20 rounded-md flex items-center justify-center">
-              <span className="text-white font-bold text-base">P</span>
-            </div>
             <span className="text-white font-bold text-xl tracking-tight">PeoplePay360</span>
           </div>
 
-          {/* Hero image */}
-          <div className="flex-1 flex items-center justify-center">
-            <img
-              src={heroImg}
-              alt="HR and Payroll Platform"
-              className="w-full max-w-md object-contain drop-shadow-2xl rounded-lg"
-              onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
-              }}
-            />
-          </div>
+          {/* Spacer */}
+          <div className="flex-1" />
 
           {/* Tagline */}
           <div className="mt-auto">
             <h1 className="text-3xl font-bold text-white leading-tight mb-3">
               Integrated HR &<br />Payroll Operations
             </h1>
-            <p className="text-indigo-200 text-sm leading-relaxed mb-8">
+            <p className="text-primary-100 text-sm leading-relaxed mb-8">
               Manage your entire employee lifecycle — from onboarding and attendance to contracts and payroll — in one connected platform.
             </p>
 
@@ -84,8 +70,8 @@ export function LoginPage() {
                 { icon: Clock, text: 'Attendance Tracking' },
                 { icon: Shield, text: 'Role-Based Access' },
               ].map(({ icon: Icon, text }) => (
-                <div key={text} className="flex items-center gap-2.5 bg-white/10 rounded-md px-3 py-2.5">
-                  <Icon size={14} className="text-indigo-200 shrink-0" />
+                <div key={text} className="flex items-center gap-2.5 bg-white/10 rounded-md px-3 py-2.5 backdrop-blur-sm">
+                  <Icon size={14} className="text-primary-200 shrink-0" />
                   <span className="text-white text-xs font-medium">{text}</span>
                 </div>
               ))}
@@ -99,9 +85,6 @@ export function LoginPage() {
         <div className="w-full max-w-sm">
           {/* Mobile brand */}
           <div className="lg:hidden flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 gradient-brand rounded-md flex items-center justify-center">
-              <span className="text-white font-bold text-sm">P</span>
-            </div>
             <span className="text-slate-900 font-bold text-lg">PeoplePay360</span>
           </div>
 
