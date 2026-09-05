@@ -1,0 +1,360 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  HR_MANAGER
+  HR_PAYROLL_USER
+  HR_PAYROLL_MANAGER
+  EMPLOYEE
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum EmployeeStatus {
+  Active
+  Inactive
+}
+
+enum ScheduleStatus {
+  Active
+  Inactive
+}
+
+enum DayOfWeek {
+  Monday
+  Tuesday
+  Wednesday
+  Thursday
+  Friday
+  Saturday
+  Sunday
+}
+
+enum SalaryRuleCategory {
+  BASIC
+  ALLOWANCE
+  GROSS
+  DEDUCTION
+  NET
+}
+
+enum ComputationType {
+  FIXED
+  PERCENTAGE
+  FORMULA
+}
+
+enum ContractStatus {
+  Running
+  Expired
+  Draft
+}
+
+enum AttendanceStatus {
+  Present
+  Late
+  Absent
+}
+
+enum TimeOffUnit {
+  Days
+  Hours
+}
+
+enum ApprovalWorkflow {
+  Manager
+  Officer
+}
+
+enum ApprovalStatus {
+  Approved
+  To_Approve @map("To Approve")
+  Refused
+}
+
+enum PayrunStatus {
+  Draft
+  Validated
+  Paid
+}
+
+enum PayslipStatus {
+  Draft
+  Done
+}
+
+model Department {
+  id        String     @id @db.VarChar(36)
+  name      String     @unique @db.VarChar(100)
+  employees Employee[]
+  contracts Contract[]
+
+  @@map("departments")
+}
+
+model Employee {
+  id                  String         @id @db.VarChar(36)
+  firstName           String         @map("first_name") @db.VarChar(100)
+  lastName            String         @map("last_name") @db.VarChar(100)
+  workEmail           String         @unique @map("work_email") @db.VarChar(191)
+  phone               String?        @db.VarChar(50)
+  departmentId        String?        @map("department_id") @db.VarChar(36)
+  managerId           String?        @map("manager_id") @db.VarChar(36)
+  jobPosition         String         @map("job_position") @db.VarChar(100)
+  workLocation        String         @default("Mumbai") @map("work_location") @db.VarChar(100)
+  companyName         String         @default("OxP Pvt Ltd") @map("company_name") @db.VarChar(100)
+  status              EmployeeStatus @default(Active)
+  bankAccountNumber   String?        @map("bank_account_number") @db.VarChar(50)
+  bankName            String?        @map("bank_name") @db.VarChar(100)
+  bankIfsc            String?        @map("bank_ifsc") @db.VarChar(50)
+  createdAt           DateTime       @default(now()) @map("created_at")
+  updatedAt           DateTime       @updatedAt @map("updated_at")
+
+  department         Department?         @relation(fields: [departmentId], references: [id])
+  manager            Employee?           @relation("ManagerSubordinates", fields: [managerId], references: [id])
+  subordinates       Employee[]          @relation("ManagerSubordinates")
+  user               User?
+  contracts          Contract[]
+  attendances        Attendance[]
+  timeOffAllocations TimeOffAllocation[]
+  timeOffRequests    TimeOffRequest[]
+  payslips           Payslip[]
+
+  @@index([departmentId])
+  @@index([managerId])
+  @@index([status])
+  @@map("employees")
+}
+
+model User {
+  id           String     @id @db.VarChar(36)
+  email        String     @unique @db.VarChar(191)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  role         UserRole   @default(EMPLOYEE)
+  status       UserStatus @default(ACTIVE)
+  employeeId   String?    @unique @map("employee_id") @db.VarChar(36)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  employee Employee? @relation(fields: [employeeId], references: [id])
+
+  @@map("users")
+}
+
+model WorkingSchedule {
+  id           String         @id @db.VarChar(36)
+  name         String         @db.VarChar(100)
+  company      String         @default("OxP Pvt Ltd") @db.VarChar(100)
+  daysPerWeek  Int            @default(5) @map("days_per_week")
+  hoursPerWeek Decimal        @default(40.00) @map("hours_per_week") @db.Decimal(5, 2)
+  timezone     String         @default("Asia/Kolkata") @db.VarChar(50)
+  status       ScheduleStatus @default(Active)
+
+  days      WorkingScheduleDay[]
+  contracts Contract[]
+
+  @@map("working_schedules")
+}
+
+model WorkingScheduleDay {
+  id                String         @id @db.VarChar(36)
+  workingScheduleId String         @map("working_schedule_id") @db.VarChar(36)
+  dayOfWeek         DayOfWeek      @map("day_of_week")
+  startTime         String         @map("start_time") @db.VarChar(10)
+  endTime           String         @map("end_time") @db.VarChar(10)
+  breakHours        Decimal        @default(1.00) @map("break_hours") @db.Decimal(4, 2)
+  totalHours        Decimal        @default(8.00) @map("total_hours") @db.Decimal(4, 2)
+
+  workingSchedule WorkingSchedule @relation(fields: [workingScheduleId], references: [id], onDelete: Cascade)
+
+  @@map("working_schedule_days")
+}
+
+model SalaryStructure {
+  id       String     @id @db.VarChar(36)
+  name     String     @db.VarChar(100)
+  isActive Boolean    @default(true) @map("is_active")
+
+  rules     SalaryRule[]
+  contracts Contract[]
+  payruns   Payrun[]
+
+  @@map("salary_structures")
+}
+
+model SalaryRule {
+  id                 String             @id @db.VarChar(36)
+  salaryStructureId  String             @map("salary_structure_id") @db.VarChar(36)
+  name               String             @db.VarChar(100)
+  code               String             @db.VarChar(50)
+  category           SalaryRuleCategory
+  sequence           Int
+  computationType    ComputationType    @map("computation_type")
+  fixedAmount        Decimal?           @map("fixed_amount") @db.Decimal(12, 2)
+  percentageValue    Decimal?           @map("percentage_value") @db.Decimal(5, 2)
+  percentageBase     String?            @map("percentage_base") @db.VarChar(50)
+  formula            String?            @db.Text
+
+  salaryStructure SalaryStructure @relation(fields: [salaryStructureId], references: [id], onDelete: Cascade)
+
+  @@index([salaryStructureId, sequence])
+  @@map("salary_rules")
+}
+
+model Contract {
+  id                 String         @id @db.VarChar(36)
+  contractRef        String         @unique @map("contract_ref") @db.VarChar(50)
+  employeeId         String         @map("employee_id") @db.VarChar(36)
+  departmentId       String         @map("department_id") @db.VarChar(36)
+  jobPosition        String         @map("job_position") @db.VarChar(100)
+  startDate          DateTime       @map("start_date") @db.Date
+  endDate            DateTime?      @map("end_date") @db.Date
+  wagePerMonth       Decimal        @map("wage_per_month") @db.Decimal(12, 2)
+  status             ContractStatus @default(Draft)
+  workingScheduleId  String         @map("working_schedule_id") @db.VarChar(36)
+  salaryStructureId  String         @map("salary_structure_id") @db.VarChar(36)
+
+  employee        Employee        @relation(fields: [employeeId], references: [id])
+  department      Department      @relation(fields: [departmentId], references: [id])
+  workingSchedule WorkingSchedule @relation(fields: [workingScheduleId], references: [id])
+  salaryStructure SalaryStructure @relation(fields: [salaryStructureId], references: [id])
+  payslips        Payslip[]
+
+  @@index([employeeId])
+  @@index([status])
+  @@map("contracts")
+}
+
+model Attendance {
+  id                  String          @id @db.VarChar(36)
+  employeeId          String          @map("employee_id") @db.VarChar(36)
+  date                DateTime        @db.Date
+  checkIn             DateTime        @map("check_in")
+  checkOut            DateTime?       @map("check_out")
+  workedHours         Decimal         @default(0.00) @map("worked_hours") @db.Decimal(5, 2)
+  overtimeHours       Decimal         @default(0.00) @map("overtime_hours") @db.Decimal(5, 2)
+  status              AttendanceStatus @default(Present)
+  isManualCorrection  Boolean         @default(false) @map("is_manual_correction")
+  notes               String?         @db.Text
+
+  employee Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, date], name: "unique_emp_date")
+  @@index([employeeId])
+  @@index([date])
+  @@map("attendances")
+}
+
+model TimeOffType {
+  id                 String           @id @db.VarChar(36)
+  name               String           @db.VarChar(100)
+  unit               TimeOffUnit      @default(Days)
+  requiresAllocation Boolean          @default(true) @map("requires_allocation")
+  approvalWorkflow   ApprovalWorkflow @default(Manager) @map("approval_workflow")
+  displayColor       String           @default("Blue") @map("display_color") @db.VarChar(30)
+  isActive           Boolean          @default(true) @map("is_active")
+
+  allocations TimeOffAllocation[]
+  requests    TimeOffRequest[]
+
+  @@map("time_off_types")
+}
+
+model TimeOffAllocation {
+  id             String         @id @db.VarChar(36)
+  employeeId     String         @map("employee_id") @db.VarChar(36)
+  timeOffTypeId  String         @map("time_off_type_id") @db.VarChar(36)
+  allocatedDays  Decimal        @map("allocated_days") @db.Decimal(5, 2)
+  validityYear   Int            @default(2026) @map("validity_year")
+  status         ApprovalStatus @default(To_Approve)
+  approverName   String?        @map("approver_name") @db.VarChar(100)
+  description    String?        @db.Text
+
+  employee    Employee        @relation(fields: [employeeId], references: [id])
+  timeOffType TimeOffType     @relation(fields: [timeOffTypeId], references: [id])
+  requests    TimeOffRequest[]
+
+  @@map("time_off_allocations")
+}
+
+model TimeOffRequest {
+  id             String         @id @db.VarChar(36)
+  employeeId     String         @map("employee_id") @db.VarChar(36)
+  timeOffTypeId  String         @map("time_off_type_id") @db.VarChar(36)
+  allocationId   String?        @map("allocation_id") @db.VarChar(36)
+  startDate      DateTime       @map("start_date") @db.Date
+  endDate        DateTime       @map("end_date") @db.Date
+  durationDays   Decimal        @map("duration_days") @db.Decimal(5, 2)
+  status         ApprovalStatus @default(To_Approve)
+  approverName   String?        @map("approver_name") @db.VarChar(100)
+  reason         String?        @db.Text
+
+  employee    Employee           @relation(fields: [employeeId], references: [id])
+  timeOffType TimeOffType        @relation(fields: [timeOffTypeId], references: [id])
+  allocation  TimeOffAllocation? @relation(fields: [allocationId], references: [id])
+
+  @@index([employeeId])
+  @@index([status])
+  @@map("time_off_requests")
+}
+
+model Payrun {
+  id                String       @id @db.VarChar(36)
+  name              String       @db.VarChar(100)
+  salaryStructureId String       @map("salary_structure_id") @db.VarChar(36)
+  periodStart       DateTime     @map("period_start") @db.Date
+  periodEnd         DateTime     @map("period_end") @db.Date
+  status            PayrunStatus @default(Draft)
+  createdAt         DateTime     @default(now()) @map("created_at")
+
+  salaryStructure SalaryStructure @relation(fields: [salaryStructureId], references: [id])
+  payslips        Payslip[]
+
+  @@map("payruns")
+}
+
+model Payslip {
+  id          String        @id @db.VarChar(36)
+  payrunId    String        @map("payrun_id") @db.VarChar(36)
+  employeeId  String        @map("employee_id") @db.VarChar(36)
+  contractId  String        @map("contract_id") @db.VarChar(36)
+  workedDays  Int           @default(30) @map("worked_days")
+  basicSalary Decimal       @default(0.00) @map("basic_salary") @db.Decimal(12, 2)
+  grossSalary Decimal       @default(0.00) @map("gross_salary") @db.Decimal(12, 2)
+  netSalary   Decimal       @default(0.00) @map("net_salary") @db.Decimal(12, 2)
+  status      PayslipStatus @default(Draft)
+  warnings    Json?
+
+  payrun   Payrun      @relation(fields: [payrunId], references: [id])
+  employee Employee    @relation(fields: [employeeId], references: [id])
+  contract Contract    @relation(fields: [contractId], references: [id])
+  lines    PayslipLine[]
+
+  @@unique([payrunId, employeeId], name: "unique_payrun_emp")
+  @@index([payrunId])
+  @@index([employeeId])
+  @@map("payslips")
+}
+
+model PayslipLine {
+  id        String             @id @db.VarChar(36)
+  payslipId String             @map("payslip_id") @db.VarChar(36)
+  ruleName  String             @map("rule_name") @db.VarChar(100)
+  code      String             @db.VarChar(50)
+  category  SalaryRuleCategory
+  amount    Decimal            @db.Decimal(12, 2)
+
+  payslip Payslip @relation(fields: [payslipId], references: [id], onDelete: Cascade)
+
+  @@map("payslip_lines")
+}
