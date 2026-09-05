@@ -70,9 +70,24 @@ export async function computePayrun(payrunId: string): Promise<void> {
     await prisma.payslipLine.createMany({ data: lineInserts });
 
     // 5. Summarise totals
-    const basicSalary  = dict['BASIC']  ?? 0;
-    const grossSalary  = dict['GROSS']  ?? 0;
-    const netSalary    = dict['NET']    ?? 0;
+    const basicSalary = dict['BASIC'] ?? dict['basic'] ?? 0;
+
+    // Compute gross = sum of BASIC + ALLOWANCE lines (fallback if no explicit GROSS rule)
+    let grossSalary = dict['GROSS'] ?? 0;
+    if (!grossSalary) {
+      grossSalary = lineInserts
+        .filter(l => l.category === 'BASIC' || l.category === 'ALLOWANCE')
+        .reduce((s, l) => s + l.amount, 0);
+    }
+
+    // Compute net = gross - deductions (fallback if no explicit NET rule)
+    let netSalary = dict['NET'] ?? 0;
+    if (!netSalary) {
+      const totalDeductions = lineInserts
+        .filter(l => l.category === 'DEDUCTION')
+        .reduce((s, l) => s + l.amount, 0);
+      netSalary = grossSalary - totalDeductions;
+    }
 
     // 6. Warning detection
     const warnings: string[] = [];
@@ -108,20 +123,58 @@ export async function computePayrun(payrunId: string): Promise<void> {
   }
 }
 
-// Safe formula evaluator — replaces variable codes with numeric values Supported operators: + - / ( )
+// Safe formula evaluator — replaces variable codes with numeric values
+// Supports: + - * / ( ) and built-in helpers: INDIAN_TDS(monthly_gross)
 function evaluateFormula(formula: string, dict: SalaryDict): number {
   try {
-    let expr = formula;
+    let expr = formula.trim();
+    if (!expr) return 0;
+
+    // ── Built-in helper: INDIAN_TDS(X) → Indian new-regime monthly TDS ────
+    expr = expr.replace(/INDIAN_TDS\(([^)]+)\)/g, (_, arg) => {
+      const monthly = evaluateFormula(arg, dict);
+      return String(calcIndianTDS(monthly));
+    });
+
     // Replace each known code with its value (longest codes first to avoid partial replacement)
     const codes = Object.keys(dict).sort((a, b) => b.length - a.length);
     for (const code of codes) {
       expr = expr.replace(new RegExp(`\\b${code}\\b`, 'g'), String(dict[code] ?? 0));
     }
+
     // Validate that only safe math chars remain
     if (!/^[\d\s+\-*/().]+$/.test(expr)) return 0;
     // eslint-disable-next-line no-eval
-    return Number(eval(expr)) || 0;
+    return Math.round((Number(eval(expr)) || 0) * 100) / 100;
   } catch {
     return 0;
   }
 }
+
+/**
+ * Indian New Tax Regime (FY 2024-25) slab-based monthly TDS.
+ * Input: monthlyGross (before standard deduction)
+ * Returns: monthly TDS amount
+ */
+function calcIndianTDS(monthlyGross: number): number {
+  const annual = monthlyGross * 12;
+  // Standard deduction ₹75,000 under new regime
+  const taxableAnnual = Math.max(0, annual - 75_000);
+
+  let tax = 0;
+  if      (taxableAnnual <= 300_000)  tax = 0;
+  else if (taxableAnnual <= 600_000)  tax = (taxableAnnual - 300_000) * 0.05;
+  else if (taxableAnnual <= 900_000)  tax = 15_000 + (taxableAnnual - 600_000) * 0.10;
+  else if (taxableAnnual <= 1_200_000) tax = 45_000 + (taxableAnnual - 900_000) * 0.15;
+  else if (taxableAnnual <= 1_500_000) tax = 90_000 + (taxableAnnual - 1_200_000) * 0.20;
+  else                                tax = 150_000 + (taxableAnnual - 1_500_000) * 0.30;
+
+  // Rebate u/s 87A: if taxable income ≤ 7,00,000 → no tax
+  if (taxableAnnual <= 700_000) tax = 0;
+
+  // Add 4% Health & Education Cess
+  tax = tax * 1.04;
+
+  return Math.round(tax / 12); // monthly TDS
+}
+

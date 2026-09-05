@@ -1,12 +1,14 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import {
   listStructures, createStructure,
+  listRules, createRule, updateRule,
   eligibleEmployees,
+  listPayruns, getPayrun,
   createPayrun, compute, validatePayrun, markPaid, sendPayslips,
-  getPayslip, getPayslipPdf,
+  listMyPayslips, listAllPayslips, getPayslip, getPayslipPdf, sendSinglePayslip,
 } from '../controllers/payrollController';
 import { authenticateToken } from '../middlewares/authMiddleware';
-import { isPayrollOrAbove, isPayrollManager } from '../middlewares/rbacGuard';
+import { isPayrollOrAbove, isPayrollManager, isAuthenticated } from '../middlewares/rbacGuard';
 
 const router = Router();
 router.use(authenticateToken);
@@ -15,7 +17,14 @@ router.use(authenticateToken);
 router.get('/structures',              isPayrollOrAbove, listStructures);
 router.post('/structures',             isPayrollManager, createStructure);
 
+// Salary Rules
+router.get('/rules',                   isPayrollOrAbove, listRules);
+router.post('/rules',                  isPayrollManager, createRule);
+router.put('/rules/:id',               isPayrollManager, updateRule);
+
 // Payruns
+router.get('/payruns',                 isPayrollOrAbove, listPayruns);
+router.get('/payruns/:id',             isPayrollOrAbove, getPayrun);
 router.get('/eligible-employees',      isPayrollOrAbove, eligibleEmployees);
 router.post('/payruns',                isPayrollOrAbove, createPayrun);
 router.post('/payruns/:id/compute',    isPayrollOrAbove, compute);
@@ -24,7 +33,10 @@ router.post('/payruns/:id/mark-paid',  isPayrollManager, markPaid);
 router.post('/payruns/:id/send-payslips', isPayrollOrAbove, sendPayslips);
 
 // Payslips
+router.get('/my-payslips',             isAuthenticated,  listMyPayslips);
+router.get('/payslips',                isPayrollOrAbove, listAllPayslips);
 router.get('/payslips/:id',            isPayrollOrAbove, getPayslip);
-router.get('/payslips/:id/pdf',        isPayrollOrAbove, getPayslipPdf);
+router.get('/payslips/:id/pdf',        isAuthenticated,  getPayslipPdf);
+router.post('/payslips/:id/send',       isPayrollOrAbove, sendSinglePayslip);
 
 export default router;
