@@ -64,7 +64,7 @@ function App() {
           <Route path="/contracts" element={
             <RequirePermission permission="view:contracts"><ContractsPage /></RequirePermission>
           } />
-          <Route path="/contracts/schedules" element={
+          <Route path="/schedules" element={
             <RequirePermission permission="view:contracts"><WorkingSchedulesPage /></RequirePermission>
           } />
 
@@ -73,6 +73,9 @@ function App() {
           } />
 
           <Route path="/time-off" element={<Navigate to="/time-off/requests" replace />} />
+          <Route path="/time-off/dashboard" element={
+            <RequirePermission permission="view:timeoff"><TimeOffPage /></RequirePermission>
+          } />
           <Route path="/time-off/requests" element={
             <RequirePermission permission="view:timeoff"><TimeOffPage /></RequirePermission>
           } />
@@ -99,10 +102,10 @@ function App() {
           <Route path="/payroll/payslips/:id" element={
             <RequirePermission permission="view:payslips"><PayslipDetailPage /></RequirePermission>
           } />
-          <Route path="/payroll/salary-structures" element={
+          <Route path="/payroll/structures" element={
             <RequirePermission permission="view:salary_structures"><SalaryStructuresPage /></RequirePermission>
           } />
-          <Route path="/payroll/salary-rules" element={
+          <Route path="/payroll/rules" element={
             <RequirePermission permission="view:salary_structures"><SalaryRulesPage /></RequirePermission>
           } />
 
