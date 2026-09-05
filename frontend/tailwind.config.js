@@ -1,26 +1,55 @@
 /** @type {import('tailwindcss').Config} */
+
+const fourColors = {
+  50: '#f5eef7',
+  100: '#f5eef7',
+  200: '#bc9ace',
+  300: '#bc9ace',
+  400: '#bc9ace',
+  500: '#64327a',
+  600: '#64327a',
+  700: '#3a1160',
+  800: '#3a1160',
+  900: '#3a1160',
+  950: '#3a1160',
+};
+
 export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
+    colors: {
+      transparent: 'transparent',
+      current: 'currentColor',
+      white: '#f5eef7',
+      black: '#3a1160',
+      slate: fourColors,
+      gray: fourColors,
+      zinc: fourColors,
+      neutral: fourColors,
+      stone: fourColors,
+      red: fourColors,
+      orange: fourColors,
+      amber: fourColors,
+      yellow: fourColors,
+      lime: fourColors,
+      green: fourColors,
+      emerald: fourColors,
+      teal: fourColors,
+      cyan: fourColors,
+      sky: fourColors,
+      blue: fourColors,
+      indigo: fourColors,
+      violet: fourColors,
+      purple: fourColors,
+      fuchsia: fourColors,
+      pink: fourColors,
+      rose: fourColors,
+      primary: fourColors,
+    },
     extend: {
-      colors: {
-        primary: {
-          50:  '#eef2ff',
-          100: '#e0e7ff',
-          200: '#c7d2fe',
-          300: '#a5b4fc',
-          400: '#818cf8',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-          800: '#3730a3',
-          900: '#312e81',
-          950: '#1e1b4b',
-        },
-      },
       fontFamily: {
         sans: ['"Open Sans"', 'system-ui', 'sans-serif'],
       },
