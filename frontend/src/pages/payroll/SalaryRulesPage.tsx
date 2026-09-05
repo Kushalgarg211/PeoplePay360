@@ -3,7 +3,7 @@ import { Plus, ArrowLeft, Edit3, Save, X, Search } from 'lucide-react';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
-import { mockSalaryRules, mockSalaryStructures } from '../../data/mockData';
+import api from '../../lib/api';
 import type { SalaryRule, SalaryRuleCategory } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission } from '../../lib/rbac';
@@ -22,12 +22,34 @@ type View = 'list' | 'detail';
 export function SalaryRulesPage() {
   const { user } = useAuth();
   const canEdit = user && hasPermission(user.role, 'edit:salary_structures');
-  const [rules, setRules] = useState(mockSalaryRules);
+  const [rules, setRules] = useState<SalaryRule[]>([]);
+  const [structures, setStructures] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState<View>('list');
   const [selected, setSelected] = useState<SalaryRule | null>(null);
   const [editing, setEditing] = useState(false);
   const [search, setSearch] = useState('');
   const [filterStructure, setFilterStructure] = useState('all');
+
+  React.useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      const [rRes, sRes] = await Promise.all([
+        api.get('/payroll/rules').catch(() => ({ data: { data: [] } })),
+        api.get('/payroll/structures')
+      ]);
+      setRules(rRes.data.data || []);
+      setStructures(sRes.data.data || []);
+    } catch (err) {
+      console.error('Failed to load rules', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const filtered = rules.filter((r) => {
     const matchSearch = !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.code.toLowerCase().includes(search.toLowerCase());
@@ -35,27 +57,26 @@ export function SalaryRulesPage() {
     return matchSearch && matchStructure;
   });
 
-  const createRule = () => {
-    const structureId = filterStructure === 'all' ? mockSalaryStructures[0].id : filterStructure;
-    const created: SalaryRule = {
-      id: `r${Date.now()}`,
-      structureId,
-      code: 'NEW',
-      name: 'New Salary Rule',
-      category: 'allowance',
-      computation: 'fixed',
-      amount: 0,
-      sequence: rules.filter((r) => r.structureId === structureId).length + 1,
-      active: true,
-    };
-    setRules((prev) => [created, ...prev]);
-    mockSalaryRules.push(created);
-    setSelected(created);
-    setEditing(true);
-    setView('detail');
+  const createRule = async () => {
+    const structureId = filterStructure === 'all' ? structures[0]?.id : filterStructure;
+    if (!structureId) return;
+    try {
+      await api.post('/payroll/rules', {
+        structureId,
+        code: 'NEW',
+        name: 'New Salary Rule',
+        category: 'allowance',
+        computation: 'fixed',
+        amount: 0,
+        sequence: rules.filter((r) => r.structureId === structureId).length + 1,
+      });
+      await fetchData();
+    } catch (err) {
+      console.error('Failed to create rule', err);
+    }
   };
 
-  const getStructureName = (id: string) => mockSalaryStructures.find((s) => s.id === id)?.name ?? id;
+  const getStructureName = (id: string) => structures.find((s) => s.id === id)?.name ?? id;
 
   const listColumns: Column<SalaryRule>[] = [
     {
@@ -68,7 +89,8 @@ export function SalaryRulesPage() {
     {
       key: 'category', header: 'Category',
       render: (_, r) => {
-        const cfg = categoryConfig[r.category];
+        const cat = (r.category || '').toLowerCase() as SalaryRuleCategory;
+        const cfg = categoryConfig[cat] || { label: r.category || 'Unknown', variant: 'default' as const };
         return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
       },
     },
@@ -93,7 +115,7 @@ export function SalaryRulesPage() {
 
   // ── Detail ─────────────────────────────────────────────────────────────────
   if (view === 'detail' && selected) {
-    const catCfg = categoryConfig[selected.category];
+    const catCfg = categoryConfig[(selected.category || '').toLowerCase() as SalaryRuleCategory] || { label: selected.category || 'Unknown', variant: 'default' as const };
     return (
       <div className="space-y-4 animate-fade-in max-w-3xl">
         <div className="flex items-center justify-between">
@@ -207,16 +229,22 @@ export function SalaryRulesPage() {
           className="input-field w-auto text-sm"
         >
           <option value="all">All Structures</option>
-          {mockSalaryStructures.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          {structures.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </div>
 
-      <DataTable
-        columns={listColumns}
-        data={filtered}
-        rowKey={(r) => r.id}
-        onRowClick={(r) => { setSelected(r); setEditing(false); setView('detail'); }}
-      />
+      {isLoading ? (
+        <div className="py-12 flex justify-center">
+          <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
+        </div>
+      ) : (
+        <DataTable
+          columns={listColumns}
+          data={filtered}
+          rowKey={(r) => r.id}
+          onRowClick={(r) => { setSelected(r); setEditing(false); setView('detail'); }}
+        />
+      )}
     </div>
   );
 }

@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, AlertTriangle, Search } from 'lucide-react';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
-import { mockPayruns, mockEmployees, mockSalaryStructures, mockContracts } from '../../data/mockData';
+import api from '../../lib/api';
 import type { Payrun } from '../../types';
 import { formatDate, formatCurrency } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -25,25 +25,59 @@ export function PayrunsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const canEdit = user && hasPermission(user.role, 'edit:payroll');
-  const [payruns, setPayruns] = useState<Payrun[]>(mockPayruns);
+  const [payruns, setPayruns] = useState<Payrun[]>([]);
+  const [structures, setStructures] = useState<any[]>([]);
+  const [eligibles, setEligibles] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
 
   const [wizardOpen, setWizardOpen] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
-  const [selectedStructure, setSelectedStructure] = useState(mockSalaryStructures[0].id);
-  const [periodStart, setPeriodStart] = useState('2026-04-01');
-  const [periodEnd, setPeriodEnd] = useState('2026-04-30');
+  const [selectedStructure, setSelectedStructure] = useState('');
+  const [periodStart, setPeriodStart] = useState(new Date().toISOString().slice(0, 10));
+  const [periodEnd, setPeriodEnd] = useState(new Date().toISOString().slice(0, 10));
   const [selectedEmployees, setSelectedEmployees] = useState<Set<string>>(new Set());
   const [empSearch, setEmpSearch] = useState('');
 
-  const wageByEmployee = useMemo(() => {
-    const map = new Map<string, number>();
-    mockContracts.filter((c) => c.status === 'running').forEach((c) => map.set(c.employeeId, c.wage));
-    return map;
+  React.useEffect(() => {
+    fetchData();
   }, []);
 
-  const filteredEmps = mockEmployees.filter(
-    (e) => e.status === 'active' && e.fullName.toLowerCase().includes(empSearch.toLowerCase())
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      const [prRes, stRes] = await Promise.all([
+        api.get('/payroll/payruns').catch(() => ({ data: { data: [] } })),
+        api.get('/payroll/structures').catch(() => ({ data: { data: [] } })),
+      ]);
+      setPayruns(prRes.data.data || []);
+      const fetchedStructures = stRes.data.data || [];
+      setStructures(fetchedStructures);
+      if (fetchedStructures.length > 0 && !selectedStructure) {
+        setSelectedStructure(fetchedStructures[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to load payroll data', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadEligibles = async (structureId: string, start: string, end: string) => {
+    if (!structureId || !start || !end) return;
+    try {
+      const res = await api.get('/payroll/eligible-employees', {
+        params: { structureId, periodStart: start, periodEnd: end },
+      });
+      setEligibles(res.data.data || []);
+    } catch (err) {
+      console.error('Failed to load eligible employees', err);
+      setEligibles([]);
+    }
+  };
+
+  const filteredEmps = eligibles.filter(
+    (e) => `${e.employeeName}`.toLowerCase().includes(empSearch.toLowerCase())
   );
 
   const toggleEmp = (id: string) => {
@@ -56,35 +90,30 @@ export function PayrunsPage() {
 
   const toggleAll = () => {
     if (selectedEmployees.size === filteredEmps.length) setSelectedEmployees(new Set());
-    else setSelectedEmployees(new Set(filteredEmps.map((e) => e.id)));
+    else setSelectedEmployees(new Set(filteredEmps.map((e) => e.employeeId)));
   };
 
-  const openWizard = () => { setWizardOpen(true); setStep(1); setSelectedEmployees(new Set()); };
+  const openWizard = () => { setWizardOpen(true); setStep(1); setSelectedEmployees(new Set()); setEligibles([]); };
   const closeWizard = () => { setWizardOpen(false); setStep(1); };
 
-  const handleCreate = () => {
-    const structure = mockSalaryStructures.find((s) => s.id === selectedStructure) ?? mockSalaryStructures[0];
-    const id = `pr${Date.now()}`;
-    const created: Payrun = {
-      id,
-      name: monthName(periodStart),
-      salaryStructureId: structure.id,
-      salaryStructure: structure,
-      periodStart,
-      periodEnd,
-      status: 'draft',
-      payslipCount: selectedEmployees.size,
-      totalGross: 0,
-      totalNet: 0,
-      createdAt: new Date().toISOString().slice(0, 10),
-      warnings: [],
-    };
-    // Persist selected employee ids for detail page compute
-    sessionStorage.setItem(`payrun-emps-${id}`, JSON.stringify([...selectedEmployees]));
-    mockPayruns.unshift(created);
-    setPayruns([created, ...payruns]);
-    closeWizard();
-    navigate(`/payroll/payruns/${id}`);
+  const handleCreate = async () => {
+    if (selectedEmployees.size === 0) return;
+    try {
+      const res = await api.post('/payroll/payruns', {
+        name: monthName(periodStart),
+        salaryStructureId: selectedStructure,
+        periodStart,
+        periodEnd,
+        employeeIds: [...selectedEmployees],
+      });
+      const created = res.data.data;
+      await fetchData();
+      closeWizard();
+      navigate(`/payroll/payruns/${created.id}`);
+    } catch (err: any) {
+      console.error('Failed to create payrun', err);
+      alert(err.response?.data?.message || 'Failed to create payrun.');
+    }
   };
 
   const filtered = payruns.filter((p) =>
@@ -97,7 +126,7 @@ export function PayrunsPage() {
       render: (_, p) => (
         <div>
           <p className="font-semibold text-sm text-slate-900">{p.name}</p>
-          <p className="text-xs text-slate-400">{p.salaryStructure.name}</p>
+          <p className="text-xs text-slate-400">{p.salaryStructure?.name}</p>
         </div>
       ),
     },
@@ -108,7 +137,8 @@ export function PayrunsPage() {
     {
       key: 'status', header: 'Status',
       render: (_, p) => {
-        const cfg = statusConfig[p.status];
+        const safeStatus = (p.status || '').toLowerCase();
+        const cfg = statusConfig[safeStatus] || { variant: 'default', label: p.status || 'Unknown' };
         return <Badge variant={cfg.variant} dot>{cfg.label}</Badge>;
       },
     },
@@ -148,12 +178,18 @@ export function PayrunsPage() {
         />
       </div>
 
-      <DataTable
-        columns={columns}
-        data={filtered}
-        rowKey={(p) => p.id}
-        onRowClick={(p) => navigate(`/payroll/payruns/${p.id}`)}
-      />
+      {isLoading ? (
+        <div className="py-12 flex justify-center">
+          <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
+        </div>
+      ) : (
+        <DataTable
+          columns={columns}
+          data={filtered}
+          rowKey={(p) => p.id}
+          onRowClick={(p) => navigate(`/payroll/payruns/${p.id}`)}
+        />
+      )}
 
       <Modal
         isOpen={wizardOpen}
@@ -171,7 +207,7 @@ export function PayrunsPage() {
                 value={selectedStructure}
                 onChange={(e) => setSelectedStructure(e.target.value)}
               >
-                {mockSalaryStructures.map((s) => (
+                {structures.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
@@ -185,7 +221,7 @@ export function PayrunsPage() {
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={closeWizard}>Discard</button>
-              <button id="wizard-continue-btn" className="btn-primary" onClick={() => setStep(2)}>Continue</button>
+              <button id="wizard-continue-btn" className="btn-primary" onClick={() => { loadEligibles(selectedStructure, periodStart, periodEnd); setStep(2); }}>Continue</button>
             </div>
           </div>
         )}
@@ -222,27 +258,28 @@ export function PayrunsPage() {
                 <span className="text-xs text-slate-400 w-24 text-right">Wage</span>
               </div>
               <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
-                {filteredEmps.map((emp) => {
-                  const wage = wageByEmployee.get(emp.id) ?? 4500;
-                  return (
-                    <label key={emp.id} htmlFor={`emp-${emp.id}`}
-                      className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 transition-colors"
-                    >
-                      <input
-                        id={`emp-${emp.id}`} type="checkbox"
-                        checked={selectedEmployees.has(emp.id)}
-                        onChange={() => toggleEmp(emp.id)}
-                        className="w-3.5 h-3.5 accent-primary-600 shrink-0"
-                      />
-                      <span className="text-sm font-medium text-slate-800 flex-1 min-w-0 truncate">{emp.fullName}</span>
-                      <span className="text-xs text-slate-500 shrink-0">40 hours/week</span>
-                      <span className="text-xs text-slate-500 shrink-0 w-20 text-right">{formatDate(emp.hireDate)}</span>
-                      <span className="text-xs font-semibold text-slate-700 shrink-0 w-24 text-right">
-                        {formatCurrency(wage)}
-                      </span>
-                    </label>
-                  );
-                })}
+                {filteredEmps.length === 0 ? (
+                  <p className="px-4 py-6 text-sm text-slate-400 text-center">
+                    No employees with a Running contract for this structure and period.
+                  </p>
+                ) : filteredEmps.map((emp) => (
+                  <label key={emp.employeeId} htmlFor={`emp-${emp.employeeId}`}
+                    className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 transition-colors"
+                  >
+                    <input
+                      id={`emp-${emp.employeeId}`} type="checkbox"
+                      checked={selectedEmployees.has(emp.employeeId)}
+                      onChange={() => toggleEmp(emp.employeeId)}
+                      className="w-3.5 h-3.5 accent-primary-600 shrink-0"
+                    />
+                    <span className="text-sm font-medium text-slate-800 flex-1 min-w-0 truncate">{emp.employeeName}</span>
+                    <span className="text-xs text-slate-500 shrink-0">40 hrs/week</span>
+                    <span className="text-xs text-slate-500 shrink-0 w-20 text-right">{emp.department || '—'}</span>
+                    <span className="text-xs font-semibold text-slate-700 shrink-0 w-24 text-right">
+                      {formatCurrency(Number(emp.wagePerMonth))}
+                    </span>
+                  </label>
+                ))}
               </div>
             </div>
 

@@ -3,7 +3,7 @@ import { Plus, ArrowLeft, Save, X, Edit3 } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
-import { mockWorkingSchedules } from '../../data/mockData';
+import api from '../../lib/api';
 import type { WorkingSchedule, WorkingScheduleLine } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission } from '../../lib/rbac';
@@ -57,9 +57,43 @@ const listColumns: Column<WorkingSchedule>[] = [
 export function WorkingSchedulesPage() {
   const { user } = useAuth();
   const canEdit = user && hasPermission(user.role, 'edit:contracts');
-  const [schedules, setSchedules] = useState<WorkingSchedule[]>(mockWorkingSchedules);
+  const [schedules, setSchedules] = useState<WorkingSchedule[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState<View>('list');
   const [selected, setSelected] = useState<WorkingSchedule | null>(null);
+  const [originalSelected, setOriginalSelected] = useState<WorkingSchedule | null>(null);
+
+  React.useEffect(() => {
+    fetchSchedules();
+  }, []);
+
+  const fetchSchedules = async () => {
+    try {
+      setIsLoading(true);
+      const res = await api.get('/schedules');
+      // Map backend shape → frontend WorkingSchedule shape
+      const mapped = (res.data.data || []).map((s: any) => ({
+        id:           s.id,
+        name:         s.name,
+        company:      s.company,
+        daysPerWeek:  s.daysPerWeek,
+        hoursPerWeek: Number(s.hoursPerWeek),
+        status:       (s.status || 'Active').toLowerCase() as 'active' | 'inactive',
+        lines: (s.days || []).map((d: any) => ({
+          day:         d.dayOfWeek as WorkingScheduleLine['day'],
+          startTime:   d.startTime,
+          endTime:     d.endTime,
+          breakHours:  Number(d.breakHours),
+          workedHours: Number(d.totalHours),
+        })),
+      }));
+      setSchedules(mapped);
+    } catch (err) {
+      console.error('Failed to load schedules', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
   const [editing, setEditing] = useState(false);
   const [isNew, setIsNew] = useState(false);
   const [search, setSearch] = useState('');
@@ -68,24 +102,32 @@ export function WorkingSchedulesPage() {
     !search || s.name.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Ensure all 7 days are represented in lines (fill missing days with blanks)
+  const fillAllDays = (lines: WorkingScheduleLine[]): WorkingScheduleLine[] =>
+    DAYS.map((day) => lines.find((l) => l.day === day) ?? { day, startTime: '', endTime: '', breakHours: 0, workedHours: 0 });
+
   const openDetail = (s: WorkingSchedule) => {
-    setSelected({ ...s, lines: s.lines.map((l) => ({ ...l })) });
+    const fullLines = fillAllDays(s.lines.map((l) => ({ ...l })));
+    setSelected({ ...s, lines: fullLines });
+    setOriginalSelected({ ...s, lines: fullLines });
     setIsNew(false);
     setEditing(false);
     setView('detail');
   };
 
   const openNew = () => {
-    const lines = defaultWeekLines();
-    setSelected({
-      id: `ws${Date.now()}`,
+    const lines = defaultWeekLines(); // already has all 7 days
+    const s: WorkingSchedule = {
+      id: '',
       name: 'New Schedule',
       company: 'My Company',
       daysPerWeek: 5,
       hoursPerWeek: 40,
       status: 'active',
       lines,
-    });
+    };
+    setSelected(s);
+    setOriginalSelected(s);
     setIsNew(true);
     setEditing(true);
     setView('detail');
@@ -141,16 +183,44 @@ export function WorkingSchedulesPage() {
     }, 0);
   };
 
-  const save = () => {
+  const save = async () => {
     if (!selected) return;
     const final = { ...selected, ...recomputeMeta(selected.lines) };
-    setSchedules((prev) => {
-      if (isNew) return [final, ...prev];
-      return prev.map((s) => (s.id === final.id ? final : s));
-    });
-    setSelected(final);
-    setIsNew(false);
-    setEditing(false);
+
+    // Map frontend WorkingScheduleLine[] → backend days array shape
+    const days = final.lines
+      .filter((l) => l.startTime && l.endTime)
+      .map((l) => ({
+        dayOfWeek:  l.day,
+        startTime:  l.startTime,
+        endTime:    l.endTime,
+        breakHours: l.breakHours,
+        totalHours: l.workedHours,
+      }));
+
+    const payload = {
+      name:         final.name,
+      company:      final.company ?? 'OxP Pvt Ltd',
+      daysPerWeek:  final.daysPerWeek,
+      hoursPerWeek: final.hoursPerWeek,
+      status:       final.status === 'inactive' ? 'Inactive' : 'Active',
+      days,
+    };
+
+    try {
+      if (isNew) {
+        await api.post('/schedules', payload);
+      } else {
+        await api.put(`/schedules/${final.id}`, payload);
+      }
+      await fetchSchedules();
+      setIsNew(false);
+      setEditing(false);
+      setView('list');
+    } catch (err: any) {
+      console.error('Failed to save schedule', err);
+      alert(err.response?.data?.message || 'Failed to save schedule.');
+    }
   };
 
   // ── Detail view ────────────────────────────────────────────────────────────
@@ -160,7 +230,7 @@ export function WorkingSchedulesPage() {
       <div className="space-y-4 animate-fade-in">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => setView('list')} className="btn-ghost p-1.5">
+            <button onClick={() => { setView('list'); setEditing(false); setIsNew(false); setSelected(null); }} className="btn-ghost p-1.5">
               <ArrowLeft size={15} />
             </button>
             <div>
@@ -173,8 +243,13 @@ export function WorkingSchedulesPage() {
               <div className="flex gap-2">
                 <button className="btn-primary" onClick={save}><Save size={13} />Save</button>
                 <button className="btn-secondary" onClick={() => {
-                  if (isNew) setView('list');
-                  else setEditing(false);
+                  if (isNew) {
+                    setView('list');
+                  } else {
+                    // Restore original data on discard
+                    setSelected(originalSelected ? { ...originalSelected, lines: originalSelected.lines.map(l => ({ ...l })) } : null);
+                    setEditing(false);
+                  }
                 }}><X size={13} />Discard</button>
               </div>
             ) : (
@@ -184,7 +259,7 @@ export function WorkingSchedulesPage() {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-lg shadow-card p-5">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-5 mb-5">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-5 mb-5">
             <div>
               <label className="label">Schedule Name</label>
               {editing
@@ -206,6 +281,27 @@ export function WorkingSchedulesPage() {
             <div>
               <label className="label">Hours per Week</label>
               <p className="text-sm text-slate-700">{selected.hoursPerWeek}h</p>
+            </div>
+            <div>
+              <label className="label">Status</label>
+              {editing ? (
+                <button
+                  type="button"
+                  onClick={() => setSelected({ ...selected, status: selected.status === 'active' ? 'inactive' : 'active' })}
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                    selected.status === 'active'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                      : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${selected.status === 'active' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                  {selected.status === 'active' ? 'Active' : 'Inactive'}
+                </button>
+              ) : (
+                <Badge variant={selected.status === 'active' ? 'success' : 'default'} dot>
+                  {selected.status === 'active' ? 'Active' : 'Inactive'}
+                </Badge>
+              )}
             </div>
           </div>
 
@@ -315,12 +411,18 @@ export function WorkingSchedulesPage() {
           className="input-field text-sm"
         />
       </div>
-      <DataTable
-        columns={listColumns}
-        data={filtered}
-        rowKey={(s) => s.id}
-        onRowClick={openDetail}
-      />
+      {isLoading ? (
+        <div className="py-12 flex justify-center">
+          <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
+        </div>
+      ) : (
+        <DataTable
+          columns={listColumns}
+          data={filtered}
+          rowKey={(s) => s.id}
+          onRowClick={openDetail}
+        />
+      )}
     </div>
   );
 }

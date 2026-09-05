@@ -4,7 +4,7 @@ import { Search } from 'lucide-react';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
-import { mockPayslips, mockPayruns } from '../../data/mockData';
+import api from '../../lib/api';
 import type { Payslip } from '../../types';
 import { formatCurrency, formatDate, getInitials } from '../../lib/utils';
 
@@ -15,12 +15,29 @@ const statusVariant: Record<string, 'default' | 'warning' | 'success' | 'info' |
 export function PayslipsListPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
+  const [payslips, setPayslips] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const filtered = mockPayslips.filter((ps) =>
-    !search || ps.employee.fullName.toLowerCase().includes(search.toLowerCase())
+  React.useEffect(() => {
+    const fetchPayslips = async () => {
+      try {
+        setIsLoading(true);
+        const res = await api.get('/payroll/payslips');
+        setPayslips(res.data.data);
+      } catch (err) {
+        console.error('Failed to load payslips', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchPayslips();
+  }, []);
+
+  const filtered = payslips.filter((ps) =>
+    !search || `${ps.employee.firstName} ${ps.employee.lastName}`.toLowerCase().includes(search.toLowerCase())
   );
 
-  const getPayrunName = (payrunId: string) => mockPayruns.find((p) => p.id === payrunId)?.name ?? payrunId;
+  const getPayrunName = (ps: any) => ps.payrun?.name ?? ps.payrunId;
 
   const columns: Column<Payslip>[] = [
     {
@@ -28,13 +45,10 @@ export function PayslipsListPage() {
       render: (_, ps) => (
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center bg-slate-200 text-slate-600 text-xs font-bold shrink-0">
-            {ps.employee.avatarUrl
-              ? <img src={ps.employee.avatarUrl} alt="" className="w-7 h-7 object-cover" />
-              : getInitials(ps.employee.fullName)
-            }
+            {getInitials(`${ps.employee.firstName} ${ps.employee.lastName}`)}
           </div>
           <div>
-            <p className="font-medium text-sm text-slate-900">{ps.employee.fullName}</p>
+            <p className="font-medium text-sm text-slate-900">{ps.employee.firstName} {ps.employee.lastName}</p>
             <p className="text-xs text-slate-400">{ps.employee.employeeNumber}</p>
           </div>
         </div>
@@ -42,7 +56,7 @@ export function PayslipsListPage() {
     },
     {
       key: 'payrunId', header: 'Pay Run',
-      render: (_, ps) => <span className="text-sm text-slate-600">{getPayrunName(ps.payrunId)}</span>,
+      render: (_, ps) => <span className="text-sm text-slate-600">{getPayrunName(ps)}</span>,
     },
     {
       key: 'periodStart', header: 'Period',
@@ -53,7 +67,7 @@ export function PayslipsListPage() {
     { key: 'netSalary',   header: 'Net',   render: (_, ps) => <span className="font-bold text-sm text-slate-900">{formatCurrency(ps.netSalary)}</span> },
     {
       key: 'status', header: 'Status',
-      render: (_, ps) => <Badge variant={statusVariant[ps.status]}>{ps.status.charAt(0).toUpperCase() + ps.status.slice(1)}</Badge>,
+      render: (_, ps) => <Badge variant={statusVariant[ps.status.toLowerCase()] || 'default'}>{ps.status.charAt(0).toUpperCase() + ps.status.slice(1).toLowerCase()}</Badge>,
     },
   ];
 
@@ -75,12 +89,18 @@ export function PayslipsListPage() {
         />
       </div>
 
-      <DataTable
-        columns={columns}
-        data={filtered}
-        rowKey={(ps) => ps.id}
-        onRowClick={(ps) => navigate(`/payroll/payslips/${ps.id}`)}
-      />
+      {isLoading ? (
+        <div className="py-12 flex justify-center">
+          <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
+        </div>
+      ) : (
+        <DataTable
+          columns={columns}
+          data={filtered}
+          rowKey={(ps) => ps.id}
+          onRowClick={(ps) => navigate(`/payroll/payslips/${ps.id}`)}
+        />
+      )}
     </div>
   );
 }

@@ -171,8 +171,10 @@ export function Topbar() {
   if (can('view:timeoff')) {
     timeOffItems.push({ label: 'Dashboard', to: '/time-off/dashboard', icon: BarChart3 });
     timeOffItems.push({ label: 'Time Off Requests', to: '/time-off/requests', icon: ClipboardList });
-    timeOffItems.push({ label: 'Allocations', to: '/time-off/allocations', icon: CalendarDays });
-    timeOffItems.push({ label: 'Time Off Types', to: '/time-off/types', icon: List });
+    if (can('manage:timeoff')) {
+      timeOffItems.push({ label: 'Allocations', to: '/time-off/allocations', icon: CalendarDays });
+      timeOffItems.push({ label: 'Time Off Types', to: '/time-off/types', icon: List });
+    }
   }
 
   const payrollItems: DropdownItem[] = [];

@@ -5,11 +5,12 @@ import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
-import { mockEmployees } from '../../data/mockData';
+
 import type { Employee } from '../../types';
 import { formatDate, getInitials } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission } from '../../lib/rbac';
+import api from '../../lib/api';
 
 const statusVariant: Record<string, 'success' | 'warning' | 'danger' | 'default'> = {
   active: 'success', on_leave: 'warning', inactive: 'default', terminated: 'danger',
@@ -24,9 +25,40 @@ export function EmployeesPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'kanban' | 'list'>('kanban');
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
   const canEdit = user && hasPermission(user.role, 'edit:employees');
 
-  const filtered = mockEmployees.filter((e) =>
+  React.useEffect(() => {
+    const fetchEmployees = async () => {
+      try {
+        const response = await api.get('/employees');
+        // Map backend format to frontend Employee type
+        const mapped: Employee[] = response.data.data.map((emp: any) => ({
+          id: emp.id,
+          employeeNumber: emp.employeeNumber || emp.id.substring(0,8),
+          firstName: emp.firstName,
+          lastName: emp.lastName,
+          fullName: `${emp.firstName} ${emp.lastName}`,
+          email: emp.workEmail || emp.email || '',
+          jobPosition: { id: emp.jobPosition || '', title: emp.jobPosition || 'Unknown', departmentId: emp.department?.id || '' },
+          department: emp.department || { id: '', name: 'Unknown' },
+          status: (emp.status || 'ACTIVE').toLowerCase(),
+          avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${emp.workEmail || emp.id}`,
+          hireDate: emp.hireDate || emp.createdAt || new Date().toISOString(),
+        }));
+        setEmployees(mapped);
+      } catch (err: any) {
+        setError(err.response?.data?.message || 'Failed to fetch employees');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchEmployees();
+  }, []);
+
+  const filtered = employees.filter((e) =>
     [e.fullName, e.email, e.jobPosition.title, e.department.name]
       .join(' ').toLowerCase().includes(search.toLowerCase())
   );
@@ -76,6 +108,11 @@ export function EmployeesPage() {
 
   return (
     <div className="space-y-4 animate-fade-in">
+      {error && (
+        <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm mb-4">
+          {error}
+        </div>
+      )}
       {/* Header */}
       <div className="page-header">
         <div>
@@ -131,7 +168,16 @@ export function EmployeesPage() {
       {/* Kanban View */}
       {view === 'kanban' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map((emp) => (
+          {isLoading ? (
+            <div className="col-span-full py-12 flex justify-center">
+              <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="col-span-full py-12 text-center text-slate-400 text-sm">
+              No employees match your search.
+            </div>
+          ) : (
+            filtered.map((emp) => (
             <div
               key={emp.id}
               onClick={() => navigate(`/employees/${emp.id}`)}
@@ -167,24 +213,27 @@ export function EmployeesPage() {
                 </div>
               </div>
             </div>
-          ))}
-
-          {filtered.length === 0 && (
-            <div className="col-span-full py-12 text-center text-slate-400 text-sm">
-              No employees match your search.
-            </div>
-          )}
+          ))
+        )}
         </div>
       )}
 
       {/* List View */}
       {view === 'list' && (
-        <DataTable
-          columns={columns}
-          data={filtered}
-          rowKey={(e) => e.id}
-          onRowClick={(e) => navigate(`/employees/${e.id}`)}
-        />
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+          {isLoading ? (
+            <div className="py-12 flex justify-center">
+              <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
+            </div>
+          ) : (
+            <DataTable
+              columns={columns}
+              data={filtered}
+              rowKey={(e) => e.id}
+              onRowClick={(e) => navigate(`/employees/${e.id}`)}
+            />
+          )}
+        </div>
       )}
     </div>
   );

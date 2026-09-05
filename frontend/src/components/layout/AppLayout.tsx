@@ -33,7 +33,7 @@ class PageErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
 
 export function AppLayout() {
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-white">
       <Topbar />
       <main className="pt-14 min-h-screen">
         <div className="max-w-screen-xl mx-auto px-4 sm:px-6 py-5">

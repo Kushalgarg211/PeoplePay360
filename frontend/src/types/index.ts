@@ -59,7 +59,7 @@ export interface Employee {
 }
 
 // ─── Contract ────────────────────────────────────────────────────────────────
-export type ContractStatus = 'draft' | 'running' | 'expired' | 'cancelled';
+export type ContractStatus = 'draft' | 'running' | 'expired';
 export type WageType = 'monthly' | 'hourly' | 'daily';
 
 export interface WorkingSchedule {
@@ -110,7 +110,7 @@ export interface SalaryRule {
 export interface Contract {
   id: string;
   employeeId: string;
-  employee: Pick<Employee, 'fullName' | 'employeeNumber'>;
+  employee: Pick<Employee, 'fullName' | 'firstName' | 'lastName' | 'employeeNumber'>;
   reference: string;
   status: ContractStatus;
   startDate: string;
@@ -118,6 +118,7 @@ export interface Contract {
   wage: number;
   wageType: WageType;
   department?: string;
+  departmentId?: string;
   jobPosition?: string;
   workingScheduleId: string;
   workingSchedule: WorkingSchedule;
@@ -132,7 +133,7 @@ export type AttendanceStatus = 'present' | 'late' | 'absent' | 'half_day';
 export interface AttendanceRecord {
   id: string;
   employeeId: string;
-  employee: Pick<Employee, 'fullName' | 'avatarUrl' | 'department'>;
+  employee: Pick<Employee, 'fullName' | 'firstName' | 'lastName' | 'avatarUrl' | 'department'>;
   date: string;
   checkIn?: string;
   checkOut?: string;
@@ -166,7 +167,7 @@ export interface LeaveType {
 export interface LeaveAllocation {
   id: string;
   employeeId: string;
-  employee: Pick<Employee, 'fullName'>;
+  employee: Pick<Employee, 'fullName' | 'firstName' | 'lastName'>;
   leaveTypeId: string;
   leaveType: LeaveType;
   allocated: number;
@@ -181,7 +182,7 @@ export interface LeaveAllocation {
 export interface LeaveRequest {
   id: string;
   employeeId: string;
-  employee: Pick<Employee, 'fullName' | 'avatarUrl'>;
+  employee: Pick<Employee, 'fullName' | 'firstName' | 'lastName' | 'avatarUrl'>;
   leaveTypeId: string;
   leaveType: LeaveType;
   startDate: string;
@@ -218,7 +219,8 @@ export interface PayslipLine {
   id: string;
   category: SalaryRuleCategory;
   code: string;
-  name: string;
+  name: string;       // alias — populated from ruleName at render time
+  ruleName: string;   // actual field name returned by the backend
   quantity?: number;
   rate?: number;
   amount: number;
@@ -228,7 +230,7 @@ export interface Payslip {
   id: string;
   payrunId: string;
   employeeId: string;
-  employee: Pick<Employee, 'fullName' | 'avatarUrl' | 'department' | 'employeeNumber'>;
+  employee: Pick<Employee, 'fullName' | 'firstName' | 'lastName' | 'avatarUrl' | 'department' | 'employeeNumber'>;
   periodStart: string;
   periodEnd: string;
   workedDays?: number;
@@ -248,7 +250,7 @@ export type UserStatus = 'active' | 'inactive';
 export interface SystemUser {
   id: string;
   employeeId?: string;
-  employee?: Pick<Employee, 'fullName'>;
+  employee?: Pick<Employee, 'fullName' | 'firstName' | 'lastName'>;
   email: string;
   role: UserRole;
   status: UserStatus;

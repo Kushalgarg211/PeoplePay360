@@ -17,6 +17,7 @@ import { WorkingSchedulesPage } from './pages/contracts/WorkingSchedulesPage';
 
 import { AttendancePage } from './pages/attendance/AttendancePage';
 import { TimeOffPage } from './pages/timeoff/TimeOffPage';
+import { TimeOffDashboardPage } from './pages/timeoff/TimeOffDashboardPage';
 
 import { PayrollDashboardPage } from './pages/payroll/PayrollDashboardPage';
 import { PayrunsPage } from './pages/payroll/PayrunsPage';
@@ -28,11 +29,15 @@ import { SalaryStructuresPage } from './pages/payroll/SalaryStructuresPage';
 import { SalaryRulesPage } from './pages/payroll/SalaryRulesPage';
 
 import { UsersPage } from './pages/admin/UsersPage';
+import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
+import { ResetPasswordPage }  from './pages/auth/ResetPasswordPage';
 
 function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login"           element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password"  element={<ResetPasswordPage />} />
 
       <Route element={<AuthGuard />}>
         <Route element={<AppLayout />}>
@@ -74,16 +79,16 @@ function App() {
 
           <Route path="/time-off" element={<Navigate to="/time-off/requests" replace />} />
           <Route path="/time-off/dashboard" element={
-            <RequirePermission permission="view:timeoff"><TimeOffPage /></RequirePermission>
+            <RequirePermission permission="view:timeoff"><TimeOffDashboardPage /></RequirePermission>
           } />
           <Route path="/time-off/requests" element={
             <RequirePermission permission="view:timeoff"><TimeOffPage /></RequirePermission>
           } />
           <Route path="/time-off/allocations" element={
-            <RequirePermission permission="view:timeoff"><TimeOffPage /></RequirePermission>
+            <RequirePermission permission="manage:timeoff"><TimeOffPage /></RequirePermission>
           } />
           <Route path="/time-off/types" element={
-            <RequirePermission permission="view:timeoff"><TimeOffPage /></RequirePermission>
+            <RequirePermission permission="manage:timeoff"><TimeOffPage /></RequirePermission>
           } />
 
           <Route path="/payroll/dashboard" element={

@@ -4,6 +4,70 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Force purple primary palette (overrides any blue Tailwind cache) ────── */
+:root {
+  --primary-50:  #F5EFF9;
+  --primary-100: #EAD9F3;
+  --primary-200: #D5B3E7;
+  --primary-300: #C49BD4;
+  --primary-400: #AA75BE;
+  --primary-500: #8B47A8;
+  --primary-600: #6B3A7D;
+  --primary-700: #5A2D69;
+  --primary-800: #3D1C4E;
+  --primary-900: #2D1457;
+  --primary-950: #1A0A35;
+}
+
+/* Override every Tailwind bg-primary-* that may be cached blue */
+.bg-primary-50  { background-color: #F5EFF9 !important; }
+.bg-primary-100 { background-color: #EAD9F3 !important; }
+.bg-primary-200 { background-color: #D5B3E7 !important; }
+.bg-primary-300 { background-color: #C49BD4 !important; }
+.bg-primary-400 { background-color: #AA75BE !important; }
+.bg-primary-500 { background-color: #8B47A8 !important; }
+.bg-primary-600 { background-color: #6B3A7D !important; }
+.bg-primary-700 { background-color: #5A2D69 !important; }
+.bg-primary-800 { background-color: #3D1C4E !important; }
+.bg-primary-900 { background-color: #2D1457 !important; }
+.bg-primary-950 { background-color: #1A0A35 !important; }
+
+.text-primary-50  { color: #F5EFF9 !important; }
+.text-primary-100 { color: #EAD9F3 !important; }
+.text-primary-200 { color: #D5B3E7 !important; }
+.text-primary-300 { color: #C49BD4 !important; }
+.text-primary-400 { color: #AA75BE !important; }
+.text-primary-500 { color: #8B47A8 !important; }
+.text-primary-600 { color: #6B3A7D !important; }
+.text-primary-700 { color: #5A2D69 !important; }
+.text-primary-800 { color: #3D1C4E !important; }
+.text-primary-900 { color: #2D1457 !important; }
+
+.border-primary-50  { border-color: #F5EFF9 !important; }
+.border-primary-100 { border-color: #EAD9F3 !important; }
+.border-primary-200 { border-color: #D5B3E7 !important; }
+.border-primary-300 { border-color: #C49BD4 !important; }
+.border-primary-400 { border-color: #AA75BE !important; }
+.border-primary-500 { border-color: #8B47A8 !important; }
+.border-primary-600 { border-color: #6B3A7D !important; }
+.border-primary-700 { border-color: #5A2D69 !important; }
+.border-primary-800 { border-color: #3D1C4E !important; }
+.border-primary-900 { border-color: #2D1457 !important; }
+
+.ring-primary-500 { --tw-ring-color: #8B47A8 !important; }
+.ring-primary-600 { --tw-ring-color: #6B3A7D !important; }
+
+.focus\:border-primary-500:focus { border-color: #8B47A8 !important; }
+.focus\:ring-primary-500:focus   { --tw-ring-color: #8B47A8 !important; }
+
+.hover\:bg-primary-50:hover  { background-color: #F5EFF9 !important; }
+.hover\:bg-primary-600:hover { background-color: #6B3A7D !important; }
+.hover\:bg-primary-700:hover { background-color: #5A2D69 !important; }
+.hover\:bg-primary-800:hover { background-color: #3D1C4E !important; }
+.hover\:text-primary-600:hover { color: #6B3A7D !important; }
+
+.active\:bg-primary-800:active { background-color: #3D1C4E !important; }
+
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
 
@@ -13,24 +77,58 @@
   }
 
   body {
-    @apply bg-slate-50 text-slate-800;
+    @apply bg-white text-slate-800;
     font-family: 'Open Sans', system-ui, sans-serif;
   }
 
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { @apply bg-slate-300 rounded-sm; }
-  ::-webkit-scrollbar-thumb:hover { @apply bg-slate-400; }
+  ::-webkit-scrollbar-thumb { background-color: #C49BD4; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background-color: #8B47A8; }
+
+  /* Purple text selection */
+  ::selection { background-color: #C49BD4; color: #2D1457; }
+
+  /* Override browser default blue focus outline on all interactive elements */
+  *:focus-visible { outline: 2px solid #8B47A8 !important; outline-offset: 2px !important; }
+
+  /* Input fields — purple focus ring, not blue */
+  input:focus, textarea:focus, select:focus {
+    outline: none !important;
+    border-color: #8B47A8 !important;
+    box-shadow: 0 0 0 3px rgba(139, 71, 168, 0.2) !important;
+  }
+
+  /* Chrome autofill blue background override */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #F5EFF9 inset !important;
+    -webkit-text-fill-color: #2D1457 !important;
+    border-color: #8B47A8 !important;
+  }
 }
 
 @layer components {
   /* ── Buttons ─────────────────────────────────────────────────────────────── */
   .btn-primary {
-    @apply inline-flex items-center gap-1.5 px-3.5 py-2 bg-primary-600 text-white text-sm font-semibold rounded-md
-           hover:bg-primary-700 active:bg-primary-800 transition-colors
-           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-1
-           disabled:opacity-50 disabled:cursor-not-allowed;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.875rem;
+    background-color: #6B3A7D;
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border-radius: 0.375rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s, box-shadow 0.15s;
   }
+  .btn-primary:hover { background-color: #5A2D69 !important; }
+  .btn-primary:active { background-color: #3D1C4E !important; }
+  .btn-primary:focus { outline: none; box-shadow: 0 0 0 3px rgba(139,71,168,0.35); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .btn-secondary {
     @apply inline-flex items-center gap-1.5 px-3.5 py-2 bg-white text-slate-700 text-sm font-semibold rounded-md
@@ -108,11 +206,11 @@
   .hide-scrollbar::-webkit-scrollbar { display: none; }
 
   .gradient-brand {
-    background: linear-gradient(135deg, #3730a3 0%, #4f46e5 60%, #6366f1 100%);
+    background: linear-gradient(135deg, #1A0A35 0%, #2D1457 50%, #6B3A7D 100%);
   }
 
   .text-gradient {
-    background: linear-gradient(135deg, #3730a3, #6366f1);
+    background: linear-gradient(135deg, #2D1457, #8B47A8);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -154,7 +252,8 @@
   .no-print { display: none !important; }
   .print-only { display: block !important; }
   body { background: white !important; font-size: 11px; }
-  .gradient-brand { background: #4f46e5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .gradient-brand { background: #2D1457 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .page-break { page-break-after: always; }
   * { box-shadow: none !important; }
 }
+

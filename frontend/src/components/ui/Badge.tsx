@@ -14,13 +14,13 @@ interface BadgeProps {
 }
 
 const variantClasses: Record<BadgeVariant, string> = {
-  default:  'text-slate-700',
-  success:  'text-emerald-700',
-  warning:  'text-amber-700',
-  danger:   'text-red-700',
-  info:     'text-blue-700',
-  purple:   'text-purple-700',
-  indigo:   'text-indigo-700',
+  default:  'text-slate-500',
+  success:  'text-emerald-600',
+  warning:  'text-amber-600',
+  danger:   'text-red-600',
+  info:     'text-blue-600',
+  purple:   'text-purple-600',
+  indigo:   'text-indigo-600',
 };
 
 const dotColors: Record<BadgeVariant, string> = {

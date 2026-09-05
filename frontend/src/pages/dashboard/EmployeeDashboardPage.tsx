@@ -8,21 +8,54 @@ import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { useAuth } from '../../context/AuthContext';
 import { useAttendance } from '../../context/AttendanceContext';
-import { mockAttendance, mockLeaveRequests, mockPayslips, mockEmployees } from '../../data/mockData';
-import { formatCurrency, getInitials } from '../../lib/utils';
+import api from '../../lib/api';
+import { formatCurrency, getInitials, formatDate } from '../../lib/utils';
 
 export function EmployeeDashboardPage() {
   const { user } = useAuth();
   const { isCheckedIn, formattedElapsed } = useAttendance();
 
-  const employee = mockEmployees.find((e) => e.id === user?.employeeId);
-  const myAttendance = mockAttendance.filter((a) => a.employeeId === user?.employeeId);
-  const myLeave = mockLeaveRequests.filter((r) => r.employeeId === user?.employeeId);
-  const myPayslips = mockPayslips.filter((ps) => ps.employeeId === user?.employeeId);
+  const [myAttendance, setMyAttendance] = React.useState<any[]>([]);
+  const [myLeave, setMyLeave] = React.useState<any[]>([]);
+  const [myPayslips, setMyPayslips] = React.useState<any[]>([]);
+  const [employee, setEmployee] = React.useState<any>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
 
-  const presentDays = myAttendance.filter((a) => a.status === 'present' || a.status === 'late').length;
-  const pendingLeave = myLeave.filter((r) => r.status === 'pending').length;
-  const approvedLeave = myLeave.filter((r) => r.status === 'approved').length;
+  React.useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      const [attRes, leaveRes, payRes, empRes] = await Promise.all([
+        api.get('/attendance'),
+        api.get('/time-off/requests'),
+        api.get('/payroll/my-payslips'),
+        user?.employeeId ? api.get(`/employees/${user.employeeId}`) : Promise.resolve({ data: { data: null } }),
+      ]);
+      setMyAttendance(attRes.data.data || []);
+      setMyLeave(leaveRes.data.data || []);
+      setMyPayslips(payRes.data.data || []);
+      setEmployee(empRes.data.data);
+    } catch (err) {
+      console.error('Failed to load employee dashboard data', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="py-12 flex justify-center">
+        <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  const presentDays = myAttendance.filter((a) => a.status === 'Present' || a.status === 'Late').length;
+  const pendingLeave = myLeave.filter((r) => r.status === 'To_Approve').length;
+  const approvedLeave = myLeave.filter((r) => r.status === 'Approved').length;
   const latestPayslip = myPayslips[0];
 
   const stats = [
@@ -141,20 +174,20 @@ export function EmployeeDashboardPage() {
             {myLeave.slice(0, 4).map((req) => (
               <div key={req.id} className="px-5 py-3 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: req.leaveType.color }} />
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: '#8b5cf6' }} />
                   <div>
-                    <p className="text-sm font-medium text-slate-800">{req.leaveType.name}</p>
-                    <p className="text-xs text-slate-400">{req.startDate} – {req.endDate} · {req.days}d</p>
+                    <p className="text-sm font-medium text-slate-800">{req.timeOffType?.name || 'Leave'}</p>
+                    <p className="text-xs text-slate-400">{formatDate(req.startDate)} – {formatDate(req.endDate)} · {req.durationDays}d</p>
                   </div>
                 </div>
                 <Badge
                   variant={
-                    req.status === 'approved' ? 'success' :
-                    req.status === 'pending' ? 'warning' :
-                    req.status === 'refused' ? 'danger' : 'default'
+                    req.status === 'Approved' ? 'success' :
+                    req.status === 'To_Approve' ? 'warning' :
+                    req.status === 'Refused' ? 'danger' : 'default'
                   }
                 >
-                  {req.status}
+                  {req.status === 'To_Approve' ? 'Pending' : req.status}
                 </Badge>
               </div>
             ))}
@@ -175,18 +208,18 @@ export function EmployeeDashboardPage() {
                 <div className="flex items-center gap-3">
                   <Clock size={14} className="text-slate-400 shrink-0" />
                   <div>
-                    <p className="text-sm text-slate-800">{rec.date}</p>
+                    <p className="text-sm text-slate-800">{formatDate(rec.date)}</p>
                     <p className="text-xs text-slate-400">
-                      {rec.checkIn ?? '—'} → {rec.checkOut ?? '—'}
+                      {rec.checkIn ? new Date(rec.checkIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '—'} → {rec.checkOut ? new Date(rec.checkOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '—'}
                       {rec.workedHours != null ? ` · ${rec.workedHours}h` : ''}
                     </p>
                   </div>
                 </div>
                 <Badge
                   variant={
-                    rec.status === 'present' ? 'success' :
-                    rec.status === 'late' ? 'warning' :
-                    rec.status === 'absent' ? 'danger' : 'default'
+                    rec.status === 'Present' ? 'success' :
+                    rec.status === 'Late' ? 'warning' :
+                    rec.status === 'Absent' ? 'danger' : 'default'
                   }
                   dot
                 >

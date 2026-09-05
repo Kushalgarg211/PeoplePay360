@@ -10,15 +10,19 @@ import {
 import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
-import {
-  mockDashboardKPI, mockSalaryByDept, mockMonthlySalaryTrend,
-  mockLeaveRequests, mockAttendance, mockPayruns, mockEmployees,
-} from '../../data/mockData';
+import api from '../../lib/api';
 import { formatCurrency, formatDate } from '../../lib/utils';
 import type { LeaveRequest, AttendanceRecord } from '../../types';
 
-const PERIODS = ['Jan 2026', 'Feb 2026', 'Mar 2026'];
-const DEPTS = ['All Departments', 'Engineering', 'HR', 'Finance', 'Sales', 'Operations'];
+// Build last 6 months as { label: 'Sep 2026', value: '2026-09' }
+const PERIODS = Array.from({ length: 6 }, (_, i) => {
+  const d = new Date();
+  d.setMonth(d.getMonth() - (5 - i));
+  const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const label = d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  return { value, label };
+});
+const DEPTS = ['All Departments'];
 
 function KPICard({
   icon: Icon, label, value, delta, color,
@@ -46,15 +50,55 @@ function KPICard({
 }
 
 export function DashboardPage() {
-  const [period, setPeriod] = useState(PERIODS[2]);
+  const [period, setPeriod] = useState(PERIODS[PERIODS.length - 1].value);
   const [dept, setDept] = useState(DEPTS[0]);
-  const kpi = mockDashboardKPI;
+  const [metrics, setMetrics] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const pendingLeaves = mockLeaveRequests.filter((l) => l.status === 'pending');
-  const missingCheckouts = mockAttendance.filter((a) => a.checkIn && !a.checkOut);
-  const manualEdits = mockAttendance.filter((a) => a.isManuallyEdited);
-  const draftPayruns = mockPayruns.filter((p) => p.status === 'draft');
-  const warnings = draftPayruns.flatMap((p) => p.warnings ?? []);
+  React.useEffect(() => {
+    fetchData();
+  }, [period]);
+
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      setError('');
+      const res = await api.get(`/dashboard/metrics?period=${period}`);
+      setMetrics(res.data.data);
+    } catch (err: any) {
+      console.error('Failed to fetch dashboard metrics', err);
+      setError(err.response?.data?.message || 'Failed to load dashboard data');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="py-12 flex justify-center">
+        <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  if (error || !metrics) {
+    return (
+      <div className="py-12 text-center">
+        <p className="text-red-500 font-medium mb-2">{error || 'No data available'}</p>
+        <button onClick={fetchData} className="btn-primary text-sm">Retry</button>
+      </div>
+    );
+  }
+
+  const kpi = {
+    totalNetSalary: metrics.totalNetSalaryPaid || 0,
+    payslipsGenerated: metrics.payslipsGenerated?.total || 0,
+    averageSalary: metrics.avgSalary || 0,
+    attendanceHealth: metrics.attendanceHealthPct || 0,
+  };
+
+  const warnings = metrics.payrollAlerts || [];
 
   const leaveColumns: Column<LeaveRequest>[] = [
     {
@@ -99,7 +143,7 @@ export function DashboardPage() {
     },
     {
       key: 'isManuallyEdited', header: 'Flag',
-      render: (_, a) => a.isManuallyEdited
+      render: (_, a: any) => a.isManuallyEdited
         ? <Badge variant="warning" dot>Edited</Badge>
         : (!a.checkOut && a.checkIn)
         ? <Badge variant="danger" dot>No checkout</Badge>
@@ -107,7 +151,7 @@ export function DashboardPage() {
     },
   ];
 
-  const alertData = mockAttendance.filter((a) => a.isManuallyEdited || (!a.checkOut && a.checkIn));
+  const alertData: any[] = []; // Real implementation would fetch this from attendance overview if available
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -124,7 +168,7 @@ export function DashboardPage() {
             onChange={(e) => setPeriod(e.target.value)}
             className="input-field w-auto text-xs"
           >
-            {PERIODS.map((p) => <option key={p}>{p}</option>)}
+            {PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
           </select>
           <select
             id="dashboard-dept-filter"
@@ -139,10 +183,10 @@ export function DashboardPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <KPICard icon={DollarSign} label="Total Net Salary Paid"  value={formatCurrency(kpi.totalNetSalary)} delta={kpi.totalNetSalaryDelta} color="bg-primary-600" />
+        <KPICard icon={DollarSign} label="Total Net Salary Paid"  value={formatCurrency(kpi.totalNetSalary)} color="bg-primary-600" />
         <KPICard icon={Receipt}    label="Payslips Generated"     value={String(kpi.payslipsGenerated)}  color="bg-indigo-500" />
         <KPICard icon={Users}      label="Average Salary"         value={formatCurrency(kpi.averageSalary)}  color="bg-emerald-600" />
-        <KPICard icon={Activity}   label="Attendance Health"      value={`${kpi.attendanceHealth}%`}        color="bg-amber-500" />
+        <KPICard icon={Activity}   label="Attendance Health"      value={`${Math.round(kpi.attendanceHealth)}%`}        color="bg-amber-500" />
       </div>
 
       {/* Warnings */}
@@ -154,7 +198,7 @@ export function DashboardPage() {
               {warnings.length} Payroll Warning{warnings.length > 1 ? 's' : ''} Requiring Attention
             </p>
             <ul className="space-y-1">
-              {warnings.map((w, i) => (
+              {warnings.map((w: string, i: number) => (
                 <li key={i} className="text-xs text-amber-700 flex items-center gap-1.5">
                   <span className="w-1 h-1 rounded-full bg-amber-500 shrink-0" />
                   {w}
@@ -171,12 +215,12 @@ export function DashboardPage() {
           <p className="text-sm font-semibold text-slate-900 mb-0.5">Salary Cost by Department</p>
           <p className="text-xs text-slate-500 mb-4">Gross payroll breakdown</p>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={mockSalaryByDept} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+            <BarChart data={metrics.salaryCostByDepartment || []} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f5eef7" />
               <XAxis dataKey="department" tick={{ fontSize: 10, fontFamily: 'Open Sans' }} tickLine={false} axisLine={false} />
               <YAxis tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fontFamily: 'Open Sans' }} tickLine={false} axisLine={false} />
-              <Tooltip formatter={(v: number) => [formatCurrency(v), 'Total Salary']} />
-              <Bar dataKey="totalSalary" fill="#64327a" radius={[3, 3, 0, 0]} />
+              <Tooltip formatter={(v: any) => [formatCurrency(v), 'Total Salary']} />
+              <Bar dataKey="amount" fill="#64327a" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -185,12 +229,12 @@ export function DashboardPage() {
           <p className="text-sm font-semibold text-slate-900 mb-0.5">Monthly Net Salary Trend</p>
           <p className="text-xs text-slate-500 mb-4">6-month rolling view</p>
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={mockMonthlySalaryTrend} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+            <LineChart data={metrics.monthlyNetSalaryTrend || []} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f5eef7" />
               <XAxis dataKey="month" tick={{ fontSize: 10, fontFamily: 'Open Sans' }} tickLine={false} axisLine={false} />
               <YAxis tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fontFamily: 'Open Sans' }} tickLine={false} axisLine={false} />
-              <Tooltip formatter={(v: number) => [formatCurrency(v), 'Net Salary']} />
-              <Line type="monotone" dataKey="netSalary" stroke="#64327a" strokeWidth={2} dot={{ fill: '#64327a', r: 3 }} name="Net" />
+              <Tooltip formatter={(v: any) => [formatCurrency(v), 'Net Salary']} />
+              <Line type="monotone" dataKey="netAmount" stroke="#64327a" strokeWidth={2} dot={{ fill: '#64327a', r: 3 }} name="Net" />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -205,16 +249,20 @@ export function DashboardPage() {
               <p className="text-sm font-semibold text-slate-900">Time Off Overview</p>
               <p className="text-xs text-slate-500 mt-0.5">Pending vs approved requests</p>
             </div>
-            {pendingLeaves.length > 0 && (
-              <Badge variant="warning" dot>{pendingLeaves.length} pending</Badge>
-            )}
           </div>
-          <DataTable
-            columns={leaveColumns}
-            data={mockLeaveRequests}
-            rowKey={(r) => r.id}
-            compact
-          />
+          <div>
+            {metrics.timeOffOverview?.slice(0, 4).map((r: any) => (
+              <div key={r.type} className="px-4 py-2.5 flex items-center justify-between border-b border-slate-100 last:border-0">
+                <div>
+                  <p className="text-sm font-medium text-slate-800">{r.type}</p>
+                  <p className="text-xs text-slate-400">Approved: {r.approvedDays}d · Pending: {r.pendingRequests}</p>
+                </div>
+                <Badge variant={r.pendingRequests > 0 ? 'warning' : 'default'} dot>
+                  {r.pendingRequests > 0 ? 'Pending' : 'Ok'}
+                </Badge>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Attendance Alerts */}
@@ -225,22 +273,27 @@ export function DashboardPage() {
               <p className="text-xs text-slate-500 mt-0.5">Missing checkouts & manual edits</p>
             </div>
             <div className="flex items-center gap-2">
-              {missingCheckouts.length > 0 && <Badge variant="danger" dot>{missingCheckouts.length} missing</Badge>}
-              {manualEdits.length > 0 && <Badge variant="warning" dot>{manualEdits.length} edited</Badge>}
+              {metrics.attendanceOverview?.missingCheckouts > 0 && <Badge variant="danger" dot>{metrics.attendanceOverview.missingCheckouts} missing</Badge>}
+              {metrics.attendanceOverview?.manualEdits > 0 && <Badge variant="warning" dot>{metrics.attendanceOverview.manualEdits} edited</Badge>}
             </div>
           </div>
-          <DataTable
-            columns={attendanceAlertColumns}
-            data={alertData}
-            rowKey={(a) => a.id}
-            compact
-            emptyState={
-              <div className="flex flex-col items-center gap-2 py-8">
-                <Activity size={24} className="text-emerald-400" />
-                <p className="text-sm text-slate-500">All attendance records look good</p>
+          {metrics.attendanceOverview?.missingCheckouts === 0 && metrics.attendanceOverview?.manualEdits === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 gap-2">
+              <Activity size={24} className="text-emerald-400" />
+              <p className="text-xs text-slate-500">All records look good</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 p-4">
+              <div className="flex justify-between items-center py-2">
+                <span className="text-sm text-slate-800">Missing Checkouts:</span>
+                <span className="font-semibold">{metrics.attendanceOverview?.missingCheckouts || 0}</span>
               </div>
-            }
-          />
+              <div className="flex justify-between items-center py-2">
+                <span className="text-sm text-slate-800">Manual Edits:</span>
+                <span className="font-semibold">{metrics.attendanceOverview?.manualEdits || 0}</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -260,18 +313,16 @@ export function DashboardPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {mockSalaryByDept.map((d) => {
-                const total = mockSalaryByDept.reduce((a, b) => a + b.totalSalary, 0);
-                const empCount = mockEmployees.filter((e) =>
-                  e.department.name === d.department || e.department.name.includes(d.department.replace('HR', 'Human'))
-                ).length || 1;
-                const share = ((d.totalSalary / total) * 100).toFixed(1);
+              {metrics.departmentBreakdown?.map((d: any) => {
+                const total = metrics.departmentBreakdown.reduce((a: any, b: any) => a + (b.monthlySalary || 0), 0) || 1;
+                const empCount = d.headcount || 1;
+                const share = (((d.monthlySalary || 0) / total) * 100).toFixed(1);
                 return (
                   <tr key={d.department} className="hover:bg-slate-50/50">
                     <td className="px-4 py-2.5 font-medium text-slate-800">{d.department}</td>
                     <td className="px-4 py-2.5 text-slate-600">{empCount}</td>
-                    <td className="px-4 py-2.5 font-semibold text-slate-900">{formatCurrency(d.totalSalary)}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{formatCurrency(Math.round(d.totalSalary / empCount))}</td>
+                    <td className="px-4 py-2.5 font-semibold text-slate-900">{formatCurrency(d.monthlySalary || 0)}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{formatCurrency(Math.round((d.monthlySalary || 0) / empCount))}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden max-w-[80px]">

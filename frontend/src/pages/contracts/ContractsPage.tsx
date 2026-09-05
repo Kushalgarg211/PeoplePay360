@@ -4,17 +4,16 @@ import { Plus, ArrowLeft, Edit3, Save, X } from 'lucide-react';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
-import { mockContracts, mockEmployees, mockSalaryStructures, mockWorkingSchedules } from '../../data/mockData';
+import api from '../../lib/api';
 import type { Contract, ContractStatus } from '../../types';
 import { formatDate, formatCurrency } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission } from '../../lib/rbac';
 
 const statusConfig: Record<string, { variant: 'success' | 'warning' | 'danger' | 'default'; label: string }> = {
-  running:   { variant: 'success', label: 'Running' },
-  expired:   { variant: 'default', label: 'Expired' },
-  draft:     { variant: 'warning', label: 'Draft' },
-  cancelled: { variant: 'danger',  label: 'Cancelled' },
+  running: { variant: 'success', label: 'Running' },
+  expired: { variant: 'default', label: 'Expired' },
+  draft:   { variant: 'warning', label: 'Draft'   },
 };
 
 type View = 'list' | 'detail' | 'new';
@@ -26,8 +25,8 @@ const emptyForm = {
   wage: '',
   department: '',
   jobPosition: '',
-  workingScheduleId: mockWorkingSchedules[0]?.id ?? '',
-  salaryStructureId: mockSalaryStructures[0]?.id ?? '',
+  workingScheduleId: '',
+  salaryStructureId: '',
   status: 'draft' as ContractStatus,
   notes: '',
 };
@@ -38,16 +37,65 @@ export function ContractsPage() {
   const filterEmployeeId = searchParams.get('employeeId');
   const canEdit = user && hasPermission(user.role, 'edit:contracts');
 
-  const [contracts, setContracts] = useState<Contract[]>(mockContracts);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [schedules, setSchedules] = useState<any[]>([]);
+  const [structures, setStructures] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   const [view, setView] = useState<View>('list');
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
   const [editing, setEditing] = useState(false);
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(emptyForm);
 
+  React.useEffect(() => {
+    fetchData();
+  }, [filterEmployeeId]);
+
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+      const [cRes, eRes, sRes, ssRes] = await Promise.all([
+        api.get(`/contracts${filterEmployeeId ? `?employeeId=${filterEmployeeId}` : ''}`),
+        api.get('/employees'),
+        api.get('/schedules?activeOnly=true'),
+        api.get('/payroll/structures').catch(() => ({ data: { data: [] } }))
+      ]);
+      // Map backend contract shape → frontend Contract shape
+      const mapped = (cRes.data.data as any[]).map((c) => ({
+        ...c,
+        reference:       c.contractRef || c.reference || c.id.slice(0,8).toUpperCase(),
+        wage:            Number(c.wagePerMonth ?? c.wage ?? 0),
+        startDate:       c.startDate ? new Date(c.startDate).toISOString().split('T')[0] : '',
+        endDate:         c.endDate   ? new Date(c.endDate).toISOString().split('T')[0]   : null,
+        status:          (c.status || 'draft').toLowerCase(),
+        department:      c.department?.name ?? '',
+        departmentId:    c.department?.id   ?? c.departmentId ?? '',
+        jobPosition:     c.jobPosition ?? '',
+        workingSchedule: c.workingSchedule ?? { id: '', name: '—' },
+        salaryStructure: c.salaryStructure ?? { id: '', name: '—' },
+        employee: c.employee
+          ? {
+              id:             c.employee.id,
+              fullName:       `${c.employee.firstName} ${c.employee.lastName}`,
+              employeeNumber: c.employee.employeeNumber || c.employee.id.slice(0,8).toUpperCase(),
+            }
+          : { id: '', fullName: 'Unknown', employeeNumber: '—' },
+      }));
+      setContracts(mapped);
+      setEmployees(eRes.data.data);
+      setSchedules(sRes.data.data);
+      setStructures(ssRes.data.data);
+    } catch (err) {
+      console.error('Failed to load contracts data', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const filtered = contracts
-    .filter((c) => !filterEmployeeId || c.employeeId === filterEmployeeId)
-    .filter((c) => !search || c.employee.fullName.toLowerCase().includes(search.toLowerCase()) || c.reference.toLowerCase().includes(search.toLowerCase()));
+    .filter((c) => !search || (c.employee && c.employee.fullName.toLowerCase().includes(search.toLowerCase())) || (c.reference && c.reference.toLowerCase().includes(search.toLowerCase())));
 
   const columns: Column<Contract>[] = [
     {
@@ -76,8 +124,9 @@ export function ContractsPage() {
     {
       key: 'status', header: 'Status',
       render: (_, c) => {
-        const cfg = statusConfig[c.status];
-        return <Badge variant={cfg.variant} dot pulsing={c.status === 'running'}>{cfg.label}</Badge>;
+        const safeStatus = (c.status || '').toLowerCase();
+        const cfg = statusConfig[safeStatus] || { variant: 'default', label: c.status || 'Unknown' };
+        return <Badge variant={cfg.variant} dot pulsing={safeStatus === 'running'}>{cfg.label}</Badge>;
       },
     },
   ];
@@ -85,55 +134,73 @@ export function ContractsPage() {
   const openNew = () => {
     setForm({
       ...emptyForm,
-      employeeId: filterEmployeeId ?? mockEmployees[0]?.id ?? '',
-      department: mockEmployees[0]?.department.name ?? '',
-      jobPosition: mockEmployees[0]?.jobPosition.title ?? '',
+      employeeId: filterEmployeeId ?? employees[0]?.id ?? '',
+      department: employees[0]?.department?.name ?? '',
+      jobPosition: employees[0]?.jobPosition?.title ?? '',
+      workingScheduleId: schedules[0]?.id ?? '',
+      salaryStructureId: structures[0]?.id ?? '',
     });
     setView('new');
   };
 
-  const saveNew = () => {
-    const emp = mockEmployees.find((e) => e.id === form.employeeId);
-    const schedule = mockWorkingSchedules.find((s) => s.id === form.workingScheduleId) ?? mockWorkingSchedules[0];
-    const structure = mockSalaryStructures.find((s) => s.id === form.salaryStructureId) ?? mockSalaryStructures[0];
-    if (!emp || !schedule || !structure) return;
+  const saveNew = async () => {
+    const emp = employees.find((e) => e.id === form.employeeId);
+    if (!emp) return;
 
-    const n = contracts.length + 1;
-    const created: Contract = {
-      id: `c${Date.now()}`,
+    const payload = {
       employeeId: emp.id,
-      employee: { fullName: emp.fullName, employeeNumber: emp.employeeNumber },
-      reference: `CON/2026/${String(n).padStart(4, '0')}`,
-      status: form.status,
+      departmentId: emp.department?.id || 'd100000000000000000000000000000001',
+      jobPosition: form.jobPosition || emp.jobPosition?.title || 'Unknown',
       startDate: form.startDate || new Date().toISOString().slice(0, 10),
       endDate: form.endDate || undefined,
-      wage: Number(form.wage) || 0,
-      wageType: 'monthly',
-      department: form.department || emp.department.name,
-      jobPosition: form.jobPosition || emp.jobPosition.title,
-      workingScheduleId: schedule.id,
-      workingSchedule: schedule,
-      salaryStructureId: structure.id,
-      salaryStructure: structure,
-      notes: form.notes || 'Running contract is the source for payroll calculation.',
+      wagePerMonth: Number(form.wage) || 0,
+      status: ({ running: 'Running', expired: 'Expired', draft: 'Draft' } as Record<string,string>)[form.status] ?? 'Draft',
+      workingScheduleId: form.workingScheduleId,
+      salaryStructureId: form.salaryStructureId,
+      contractRef: `CON/${new Date().getFullYear()}/${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`,
     };
-    setContracts((prev) => [created, ...prev]);
-    setSelectedContract(created);
-    setView('detail');
-    setEditing(false);
+
+    try {
+      await api.post('/contracts', payload);
+      await fetchData();
+      setView('list');
+      setEditing(false);
+    } catch (err) {
+      console.error('Failed to create contract', err);
+    }
   };
 
-  const saveDetail = () => {
+  const saveDetail = async () => {
     if (!selectedContract) return;
-    setContracts((prev) => prev.map((c) => (c.id === selectedContract.id ? selectedContract : c)));
-    setEditing(false);
+    // Map lowercase status to the exact Prisma enum value
+    const STATUS_MAP: Record<string, string> = { running: 'Running', expired: 'Expired', draft: 'Draft' };
+    const toStatus = (s: string) => STATUS_MAP[s?.toLowerCase()] ?? 'Draft';
+    try {
+      await api.put(`/contracts/${selectedContract.id}`, {
+        startDate: selectedContract.startDate,
+        endDate: selectedContract.endDate || null,
+        wagePerMonth: selectedContract.wage,
+        status: toStatus(selectedContract.status),
+        workingScheduleId: selectedContract.workingScheduleId,
+        salaryStructureId: selectedContract.salaryStructureId,
+        departmentId: selectedContract.departmentId,
+        jobPosition: selectedContract.jobPosition,
+      });
+      await fetchData();
+      setEditing(false);
+    } catch (err: any) {
+      console.error('Failed to update contract', err);
+      alert(err.response?.data?.message || 'Failed to update contract');
+    }
   };
 
   // ── New / Detail form ──────────────────────────────────────────────────────
   if (view === 'new' || (view === 'detail' && selectedContract)) {
     const isNew = view === 'new';
     const c = selectedContract;
-    const cfg = c ? statusConfig[c.status] : statusConfig.draft;
+    const cfg = c
+      ? (statusConfig[(c.status || '').toLowerCase()] || { variant: 'default', label: c.status })
+      : statusConfig.draft;
 
     return (
       <div className="space-y-4 animate-fade-in max-w-3xl">
@@ -178,27 +245,27 @@ export function ContractsPage() {
                     className="input-field"
                     value={isNew ? form.employeeId : c!.employeeId}
                     onChange={(e) => {
-                      const emp = mockEmployees.find((x) => x.id === e.target.value);
+                      const emp = employees.find((x) => x.id === e.target.value);
                       if (isNew) {
                         setForm((f) => ({
                           ...f,
                           employeeId: e.target.value,
-                          department: emp?.department.name ?? '',
-                          jobPosition: emp?.jobPosition.title ?? '',
+                          department: emp?.department?.name ?? '',
+                          jobPosition: emp?.jobPosition?.title ?? '',
                         }));
                       } else if (c && emp) {
                         setSelectedContract({
                           ...c,
                           employeeId: emp.id,
-                          employee: { fullName: emp.fullName, employeeNumber: emp.employeeNumber },
-                          department: emp.department.name,
-                          jobPosition: emp.jobPosition.title,
+                          employee: { ...c.employee, fullName: emp.fullName },
+                          department: emp.department?.name,
+                          jobPosition: emp.jobPosition?.title,
                         });
                       }
                     }}
                   >
-                    {mockEmployees.map((e) => (
-                      <option key={e.id} value={e.id}>{e.fullName}</option>
+                    {employees.map((e) => (
+                      <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>
                     ))}
                   </select>
                 </div>
@@ -275,13 +342,13 @@ export function ContractsPage() {
                     className="input-field"
                     value={isNew ? form.workingScheduleId : c!.workingScheduleId}
                     onChange={(e) => {
-                      const ws = mockWorkingSchedules.find((s) => s.id === e.target.value);
+                      const ws = schedules.find((s) => s.id === e.target.value);
                       if (!ws) return;
                       if (isNew) setForm((f) => ({ ...f, workingScheduleId: e.target.value }));
                       else setSelectedContract({ ...c!, workingScheduleId: ws.id, workingSchedule: ws });
                     }}
                   >
-                    {mockWorkingSchedules.map((s) => (
+                    {schedules.map((s) => (
                       <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
                   </select>
@@ -296,8 +363,14 @@ export function ContractsPage() {
                 <CField label="End Date" value={c!.endDate ? formatDate(c!.endDate) : undefined} />
                 <CField label="Wage / Month" value={formatCurrency(c!.wage)} />
                 <div>
-                  <span className="label">Status</span>
-                  <div className="mt-0.5"><Badge variant={cfg.variant} dot pulsing={c!.status === 'running'}>{cfg.label}</Badge></div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</p>
+                  <div className="mt-0.5">
+                    {(() => {
+                      const safeStatus = (c!.status || '').toLowerCase();
+                      const cfg = statusConfig[safeStatus] || { variant: 'default', label: c!.status || 'Unknown' };
+                      return <Badge variant={cfg.variant} dot pulsing={safeStatus === 'running'}>{cfg.label}</Badge>;
+                    })()}
+                  </div>
                 </div>
                 <CField label="Working Schedule" value={c!.workingSchedule.name} />
               </>
@@ -312,13 +385,13 @@ export function ContractsPage() {
                   className="input-field"
                   value={isNew ? form.salaryStructureId : c!.salaryStructureId}
                   onChange={(e) => {
-                    const ss = mockSalaryStructures.find((s) => s.id === e.target.value);
+                    const ss = structures.find((s) => s.id === e.target.value);
                     if (!ss) return;
                     if (isNew) setForm((f) => ({ ...f, salaryStructureId: e.target.value }));
                     else setSelectedContract({ ...c!, salaryStructureId: ss.id, salaryStructure: ss });
                   }}
                 >
-                  {mockSalaryStructures.map((s) => (
+                  {structures.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
@@ -385,12 +458,18 @@ export function ContractsPage() {
         </div>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={filtered}
-        rowKey={(c) => c.id}
-        onRowClick={(c) => { setSelectedContract({ ...c }); setView('detail'); setEditing(false); }}
-      />
+      {isLoading ? (
+        <div className="py-12 flex justify-center">
+          <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
+        </div>
+      ) : (
+        <DataTable
+          columns={columns}
+          data={filtered}
+          rowKey={(c) => c.id}
+          onRowClick={(c) => { setSelectedContract({ ...c }); setView('detail'); setEditing(false); }}
+        />
+      )}
     </div>
   );
 }

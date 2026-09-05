@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -37,13 +38,13 @@ export function Modal({ isOpen, onClose, title, subtitle, children, size = 'md',
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in"
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 animate-fade-in"
       onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
     >
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" />
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" />
       <div
         className={cn(
           'relative w-full bg-white rounded-lg shadow-modal animate-scale-in flex flex-col max-h-[92vh]',
@@ -76,6 +77,7 @@ export function Modal({ isOpen, onClose, title, subtitle, children, size = 'md',
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

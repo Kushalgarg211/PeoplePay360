@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, Edit3, Save, X, FileText, Clock, CalendarDays } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
-import { mockEmployees, mockContracts, mockAttendance, mockLeaveRequests, mockDepartments } from '../../data/mockData';
+import api from '../../lib/api';
 import type { Employee, EmployeeStatus } from '../../types';
 import { formatDate, getInitials } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
@@ -23,59 +23,142 @@ interface EmployeeFormPageProps {
 
 export function EmployeeFormPage({ overrideId, selfView = false }: EmployeeFormPageProps = {}) {
   const { id: routeId } = useParams<{ id: string }>();
+  const location = useLocation();
   const id = overrideId ?? routeId;
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isNew = id === 'new';
-  const found = isNew ? null : mockEmployees.find((e) => e.id === id);
+  // isNew: either id param is 'new', or the path ends with /new (separate route)
+  const isNew = id === 'new' || location.pathname === '/employees/new' || !id;
   const canEdit = !selfView && user && hasPermission(user.role, 'edit:employees');
   const [editing, setEditing] = useState(isNew);
   const [activeTab, setActiveTab] = useState<'work' | 'private'>('work');
-  const [employee, setEmployee] = useState<Employee | null>(() =>
-    found ? { ...found } : isNew ? {
-      id: `e${Date.now()}`,
-      employeeNumber: `EMP-${String(mockEmployees.length + 1).padStart(3, '0')}`,
-      firstName: '',
-      lastName: '',
-      fullName: '',
-      email: '',
-      phone: '',
-      department: mockDepartments[0],
-      jobPosition: { id: 'jp-new', title: '', departmentId: mockDepartments[0].id },
-      workLocation: '',
-      company: 'OKP Pvt Ltd',
-      status: 'active',
-      hireDate: new Date().toISOString().slice(0, 10),
-    } : null
-  );
+  const [isLoading, setIsLoading] = useState(true);
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [allEmployees, setAllEmployees] = useState<any[]>([]);
+  const [employee, setEmployee] = useState<Employee | null>(null);
+  const [managerId, setManagerId] = useState<string>('');
+  const [stats, setStats] = useState({ contracts: 0, attendance: 0, timeOff: 0 });
+
+  React.useEffect(() => {
+    const initForm = async () => {
+      try {
+        setIsLoading(true);
+        const [deptsRes, empListRes] = await Promise.all([
+          api.get('/employees/departments'),
+          api.get('/employees'),
+        ]);
+        const loadedDepts = deptsRes.data.data;
+        setDepartments(loadedDepts);
+        setAllEmployees(empListRes.data.data);
+
+        if (isNew) {
+          setEmployee({
+            id: `e${Date.now()}`,
+            employeeNumber: '',
+            firstName: '',
+            lastName: '',
+            fullName: '',
+            email: '',
+            phone: '',
+            department: loadedDepts[0] || { id: '', name: 'Unknown' },
+            jobPosition: { id: 'jp-new', title: '', departmentId: loadedDepts[0]?.id || '' },
+            workLocation: '',
+            company: 'OxP Pvt Ltd',
+            status: 'active',
+            hireDate: new Date().toISOString().slice(0, 10),
+          });
+        } else {
+          const response = await api.get(`/employees/${id}`);
+          const emp = response.data.data;
+          setManagerId(emp.manager?.id ?? '');
+          setEmployee({
+            id: emp.id,
+            employeeNumber: emp.employeeNumber || emp.id.substring(0,8),
+            firstName: emp.firstName,
+            lastName: emp.lastName,
+            fullName: `${emp.firstName} ${emp.lastName}`,
+            email: emp.workEmail || emp.email,
+            phone: emp.phone,
+            jobPosition: { id: '', title: emp.jobPosition || 'Unknown', departmentId: emp.department?.id || '' },
+            department: emp.department || { id: '', name: 'Unknown' },
+            status: (emp.status || 'ACTIVE').toLowerCase(),
+            avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${emp.workEmail || emp.email}`,
+            hireDate: emp.createdAt || new Date().toISOString(),
+            managerName: emp.manager ? `${emp.manager.firstName} ${emp.manager.lastName}` : '',
+            workLocation: emp.workLocation,
+            company: emp.companyName,
+            bankAccount: emp.bankAccountNumber,
+            city: emp.workLocation,
+            ...(emp.bankName  ? { bankName:  emp.bankName  } : {}),
+            ...(emp.bankIfsc  ? { bankIfsc:  emp.bankIfsc  } : {}),
+          } as any);
+          setStats({
+            contracts: emp.contractsCount || 0,
+            attendance: emp.attendanceCount || 0,
+            timeOff: emp.timeOffCount || 0
+          });
+        }
+      } catch (err) {
+        console.error('Failed to init employee form', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    initForm();
+  }, [id, isNew]);
+
+
+
+  if (isLoading) {
+    return (
+      <div className="py-12 flex justify-center">
+        <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
 
   if (!isNew && !employee) {
     return <div className="py-12 text-center text-slate-400">Employee not found.</div>;
   }
 
-  const contractCount = employee && !isNew ? mockContracts.filter((c) => c.employeeId === employee.id).length : 0;
-  const attendanceCount = employee && !isNew ? mockAttendance.filter((a) => a.employeeId === employee.id).length : 0;
-  const leaveCount = employee && !isNew ? mockLeaveRequests.filter((l) => l.employeeId === employee.id).length : 0;
+  const contractCount = stats.contracts;
+  const attendanceCount = stats.attendance;
+  const leaveCount = stats.timeOff;
 
-  const save = () => {
+  const save = async () => {
     if (!employee) return;
+    setIsLoading(true);
     const first = employee.firstName || employee.fullName.split(' ')[0] || 'New';
     const last = employee.lastName || employee.fullName.split(' ').slice(1).join(' ') || 'Employee';
-    const saved: Employee = {
-      ...employee,
+    
+    const payload = {
       firstName: first,
       lastName: last,
-      fullName: employee.fullName || `${first} ${last}`,
-      avatarUrl: employee.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${first[0]}${last[0] || 'E'}&backgroundColor=4f46e5`,
+      workEmail: employee.email,
+      phone: employee.phone || null,
+      departmentId: employee.department.id,
+      jobPosition: employee.jobPosition.title,
+      workLocation: employee.workLocation || 'Mumbai',
+      companyName: employee.company || 'OxP Pvt Ltd',
+      status: employee.status === 'active' ? 'Active' : 'Inactive',
+      bankAccountNumber: employee.bankAccount || null,
+      bankName: (employee as any).bankName || null,
+      bankIfsc: (employee as any).bankIfsc || null,
+      managerId: managerId || null,
     };
-    if (isNew) {
-      mockEmployees.unshift(saved);
-      navigate(`/employees/${saved.id}`);
-    } else {
-      const idx = mockEmployees.findIndex((e) => e.id === saved.id);
-      if (idx >= 0) mockEmployees[idx] = saved;
-      setEmployee(saved);
-      setEditing(false);
+
+    try {
+      if (isNew) {
+        const res = await api.post('/employees', payload);
+        navigate(`/employees/${res.data.data.id}`);
+      } else {
+        await api.put(`/employees/${id}`, payload);
+        setEditing(false);
+      }
+    } catch (err) {
+      console.error('Failed to save employee', err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -182,11 +265,11 @@ export function EmployeeFormPage({ overrideId, selfView = false }: EmployeeFormP
                   </div>
                   <div>
                     <label className="label">Department</label>
-                    <select className="input-field" value={employee.department.id} onChange={(e) => {
-                      const d = mockDepartments.find((x) => x.id === e.target.value) ?? mockDepartments[0];
-                      setEmployee({ ...employee, department: d, jobPosition: { ...employee.jobPosition, departmentId: d.id } });
+                    <select className="input-field" value={employee.department?.id} onChange={(e) => {
+                      const d = departments.find((x) => x.id === e.target.value) ?? departments[0];
+                      setEmployee({ ...employee, department: d, jobPosition: { ...employee.jobPosition, departmentId: d?.id || '' } });
                     }}>
-                      {mockDepartments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                     </select>
                   </div>
                   <div>
@@ -195,7 +278,27 @@ export function EmployeeFormPage({ overrideId, selfView = false }: EmployeeFormP
                   </div>
                   <div>
                     <label className="label">Manager</label>
-                    <input className="input-field" value={employee.managerName ?? ''} onChange={(e) => setEmployee({ ...employee, managerName: e.target.value })} />
+                    <select
+                      className="input-field"
+                      value={managerId}
+                      onChange={(e) => {
+                        const mgr = allEmployees.find((x: any) => x.id === e.target.value);
+                        setManagerId(e.target.value);
+                        setEmployee({
+                          ...employee,
+                          managerName: mgr ? `${mgr.firstName} ${mgr.lastName}` : '',
+                        });
+                      }}
+                    >
+                      <option value="">— No Manager —</option>
+                      {allEmployees
+                        .filter((e: any) => e.id !== employee.id)
+                        .map((e: any) => (
+                          <option key={e.id} value={e.id}>
+                            {e.firstName} {e.lastName}
+                          </option>
+                        ))}
+                    </select>
                   </div>
                   <div>
                     <label className="label">Work Location</label>
@@ -236,8 +339,16 @@ export function EmployeeFormPage({ overrideId, selfView = false }: EmployeeFormP
                     <input className="input-field" value={employee.phone ?? ''} onChange={(e) => setEmployee({ ...employee, phone: e.target.value })} />
                   </div>
                   <div>
-                    <label className="label">Bank Account</label>
+                    <label className="label">Bank Account Number</label>
                     <input className="input-field" value={employee.bankAccount ?? ''} onChange={(e) => setEmployee({ ...employee, bankAccount: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label">Bank Name</label>
+                    <input className="input-field" value={(employee as any).bankName ?? ''} onChange={(e) => setEmployee({ ...employee, ...(employee as any), bankName: e.target.value } as any)} />
+                  </div>
+                  <div>
+                    <label className="label">Bank IFSC Code</label>
+                    <input className="input-field" value={(employee as any).bankIfsc ?? ''} onChange={(e) => setEmployee({ ...employee, ...(employee as any), bankIfsc: e.target.value } as any)} />
                   </div>
                   <div>
                     <label className="label">Address</label>
@@ -247,15 +358,44 @@ export function EmployeeFormPage({ overrideId, selfView = false }: EmployeeFormP
                     <label className="label">City</label>
                     <input className="input-field" value={employee.city ?? ''} onChange={(e) => setEmployee({ ...employee, city: e.target.value })} />
                   </div>
+                  <div>
+                    <label className="label">Date of Birth</label>
+                    <input type="date" className="input-field" value={employee.dateOfBirth ?? ''} onChange={(e) => setEmployee({ ...employee, dateOfBirth: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="label">Gender</label>
+                    <select className="input-field" value={employee.gender ?? ''} onChange={(e) => setEmployee({ ...employee, gender: e.target.value as any })}>
+                      <option value="">— Select —</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">Marital Status</label>
+                    <select className="input-field" value={employee.maritalStatus ?? ''} onChange={(e) => setEmployee({ ...employee, maritalStatus: e.target.value as any })}>
+                      <option value="">— Select —</option>
+                      <option value="single">Single</option>
+                      <option value="married">Married</option>
+                      <option value="divorced">Divorced</option>
+                      <option value="widowed">Widowed</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">National ID</label>
+                    <input className="input-field" value={employee.nationalId ?? ''} onChange={(e) => setEmployee({ ...employee, nationalId: e.target.value })} />
+                  </div>
                 </>
               ) : (
                 <>
                   <Field label="Date of Birth" value={employee.dateOfBirth ? formatDate(employee.dateOfBirth) : undefined} editing={false} />
-                  <Field label="Gender" value={employee.gender} editing={false} />
-                  <Field label="Marital Status" value={employee.maritalStatus} editing={false} />
+                  <Field label="Gender" value={employee.gender ? employee.gender.charAt(0).toUpperCase() + employee.gender.slice(1) : undefined} editing={false} />
+                  <Field label="Marital Status" value={employee.maritalStatus ? employee.maritalStatus.charAt(0).toUpperCase() + employee.maritalStatus.slice(1) : undefined} editing={false} />
                   <Field label="National ID" value={employee.nationalId} editing={false} />
-                  <Field label="Bank Account" value={employee.bankAccount} editing={false} />
                   <Field label="Phone" value={employee.phone} editing={false} />
+                  <Field label="Bank Account" value={employee.bankAccount} editing={false} />
+                  <Field label="Bank Name" value={(employee as any).bankName} editing={false} />
+                  <Field label="Bank IFSC" value={(employee as any).bankIfsc} editing={false} />
                   <Field label="Address" value={employee.address} editing={false} />
                   <Field label="City" value={employee.city} editing={false} />
                 </>

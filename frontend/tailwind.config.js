@@ -1,17 +1,17 @@
 /** @type {import('tailwindcss').Config} */
 
-const fourColors = {
-  50: '#f5eef7',
-  100: '#f5eef7',
-  200: '#bc9ace',
-  300: '#bc9ace',
-  400: '#bc9ace',
-  500: '#64327a',
-  600: '#64327a',
-  700: '#3a1160',
-  800: '#3a1160',
-  900: '#3a1160',
-  950: '#3a1160',
+const primaryPurple = {
+  50:  '#F5EFF9',
+  100: '#EAD9F3',
+  200: '#D5B3E7',
+  300: '#C49BD4',
+  400: '#AA75BE',
+  500: '#8B47A8',
+  600: '#6B3A7D',
+  700: '#5A2D69',
+  800: '#3D1C4E',
+  900: '#2D1457',
+  950: '#1A0A35',
 };
 
 export default {
@@ -20,36 +20,10 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    colors: {
-      transparent: 'transparent',
-      current: 'currentColor',
-      white: '#f5eef7',
-      black: '#3a1160',
-      slate: fourColors,
-      gray: fourColors,
-      zinc: fourColors,
-      neutral: fourColors,
-      stone: fourColors,
-      red: fourColors,
-      orange: fourColors,
-      amber: fourColors,
-      yellow: fourColors,
-      lime: fourColors,
-      green: fourColors,
-      emerald: fourColors,
-      teal: fourColors,
-      cyan: fourColors,
-      sky: fourColors,
-      blue: fourColors,
-      indigo: fourColors,
-      violet: fourColors,
-      purple: fourColors,
-      fuchsia: fourColors,
-      pink: fourColors,
-      rose: fourColors,
-      primary: fourColors,
-    },
     extend: {
+      colors: {
+        primary: primaryPurple,
+      },
       fontFamily: {
         sans: ['"Open Sans"', 'system-ui', 'sans-serif'],
       },
@@ -92,3 +66,4 @@ export default {
   },
   plugins: [],
 }
+
