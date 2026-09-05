@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { AuthUser, UserRole } from '../types';
-import { demoAccounts } from '../data/mockData';
+import api from '../lib/api';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -36,42 +36,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    // Mock auth — matches demo credentials, falls back to API attempt
-    const demo = demoAccounts.find(
-      (a) => a.email === email && a.password === password
-    );
-
-    if (demo) {
-      const authUser: AuthUser = {
-        id: `user_${demo.role}`,
-        name: demo.name,
-        email: demo.email,
-        role: demo.role as UserRole,
-        employeeId: demo.employeeId,
-        avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${demo.name}`,
-      };
-      const mockToken = `mock_jwt_${Date.now()}`;
-      setUser(authUser);
-      setToken(mockToken);
-      localStorage.setItem('pp360_token', mockToken);
-      localStorage.setItem('pp360_user', JSON.stringify(authUser));
-      return;
-    }
-
-    // Real API fallback
     try {
-      const response = await fetch('http://localhost:5000/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      if (!response.ok) throw new Error('Invalid credentials');
-      const data = await response.json();
-      setUser(data.user);
-      setToken(data.token);
-      localStorage.setItem('pp360_token', data.token);
-      localStorage.setItem('pp360_user', JSON.stringify(data.user));
-    } catch {
+      const response = await api.post('/auth/login', { email, password });
+      
+      const { token: jwtToken, user: backendUser } = response.data.data;
+
+      const authUser: AuthUser = {
+        id: backendUser.id,
+        name: backendUser.employee 
+          ? `${backendUser.employee.firstName} ${backendUser.employee.lastName}`
+          : backendUser.email.split('@')[0],
+        email: backendUser.email,
+        role: (backendUser.role || '').toLowerCase() as UserRole,
+        employeeId: backendUser.employee?.id || undefined,
+        avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${backendUser.email}`,
+      };
+
+      setUser(authUser);
+      setToken(jwtToken);
+      localStorage.setItem('pp360_token', jwtToken);
+      localStorage.setItem('pp360_user', JSON.stringify(authUser));
+    } catch (err) {
       throw new Error('Invalid email or password');
     }
   }, []);

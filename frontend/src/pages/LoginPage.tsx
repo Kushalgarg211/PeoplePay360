@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Eye, EyeOff, Loader2, Users, TrendingUp, Shield, Clock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { demoAccounts } from '../data/mockData';
-import { getRoleLabel } from '../lib/rbac';
 import heroImg from '../assets/images.jpg';
 
 export function LoginPage() {
@@ -29,10 +27,7 @@ export function LoginPage() {
     }
   };
 
-  const handleDemoLogin = (acc: typeof demoAccounts[0]) => {
-    setEmail(acc.email);
-    setPassword(acc.password);
-  };
+
 
   return (
     <div className="min-h-screen flex">
@@ -41,8 +36,8 @@ export function LoginPage() {
         className="hidden lg:flex lg:w-[52%] relative overflow-hidden flex-col bg-cover bg-center"
         style={{ backgroundImage: `url(${heroImg})` }}
       >
-        {/* Dark Overlay */}
-        <div className="absolute inset-0 bg-primary-900/80" />
+        {/* Dark Overlay — deep purple gradient matching brand palette */}
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(160deg, rgba(26,10,53,0.92) 0%, rgba(45,20,87,0.88) 40%, rgba(107,58,125,0.75) 100%)' }} />
 
         <div className="relative z-10 flex flex-col h-full p-12">
           {/* Brand */}
@@ -58,7 +53,7 @@ export function LoginPage() {
             <h1 className="text-3xl font-bold text-white leading-tight mb-3">
               Integrated HR &<br />Payroll Operations
             </h1>
-            <p className="text-primary-100 text-sm leading-relaxed mb-8">
+            <p style={{ color: '#C49BD4' }} className="text-sm leading-relaxed mb-8">
               Manage your entire employee lifecycle — from onboarding and attendance to contracts and payroll — in one connected platform.
             </p>
 
@@ -71,7 +66,7 @@ export function LoginPage() {
                 { icon: Shield, text: 'Role-Based Access' },
               ].map(({ icon: Icon, text }) => (
                 <div key={text} className="flex items-center gap-2.5 bg-white/10 rounded-md px-3 py-2.5 backdrop-blur-sm">
-                  <Icon size={14} className="text-primary-200 shrink-0" />
+                  <Icon size={14} style={{ color: '#D5B3E7' }} className="shrink-0" />
                   <span className="text-white text-xs font-medium">{text}</span>
                 </div>
               ))}
@@ -135,6 +130,15 @@ export function LoginPage() {
                 </button>
               </div>
             </div>
+            {/* Forgot password link */}
+            <div className="flex justify-end">
+              <Link
+                to="/forgot-password"
+                className="text-xs text-[#6B3A7D] hover:underline font-medium"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <button
               id="login-submit-btn"
               type="submit"
@@ -146,41 +150,7 @@ export function LoginPage() {
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-6">
-            <div className="flex-1 h-px bg-slate-200" />
-            <span className="text-xs text-slate-400 font-medium">Demo Accounts</span>
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
 
-          {/* Demo accounts */}
-          <div className="space-y-1.5">
-            {demoAccounts.map((acc) => {
-              const roleColors: Record<string, string> = {
-                admin: 'bg-amber-50 border-amber-200 text-amber-700',
-                hr_manager: 'bg-blue-50 border-blue-200 text-blue-700',
-                hr_payroll_manager: 'bg-indigo-50 border-indigo-200 text-indigo-700',
-                hr_payroll_user: 'bg-purple-50 border-purple-200 text-purple-700',
-                employee: 'bg-slate-50 border-slate-200 text-slate-600',
-              };
-              return (
-                <button
-                  key={acc.email}
-                  id={`demo-${acc.role}`}
-                  onClick={() => handleDemoLogin(acc)}
-                  className="w-full flex items-center justify-between px-3 py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-md text-left transition-colors group"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 group-hover:text-slate-900 truncate">{acc.name}</p>
-                    <p className="text-xs text-slate-400 truncate">{acc.email}</p>
-                  </div>
-                  <span className={`shrink-0 ml-2 text-xs px-2 py-0.5 rounded border font-medium ${roleColors[acc.role] ?? 'bg-slate-100 border-slate-200 text-slate-600'}`}>
-                    {getRoleLabel(acc.role as never)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
         </div>
       </div>
     </div>
