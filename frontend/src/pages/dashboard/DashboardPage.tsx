@@ -31,9 +31,6 @@ function KPICard({
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded-lg shadow-card p-4 flex items-start gap-3">
-      <div className={`p-2.5 rounded-md ${color} shrink-0`}>
-        <Icon size={16} className="text-white" />
-      </div>
       <div className="flex-1 min-w-0">
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">{label}</p>
         <p className="text-xl font-bold text-slate-900 leading-tight">{value}</p>
@@ -175,11 +172,11 @@ export function DashboardPage() {
           <p className="text-xs text-slate-500 mb-4">Gross payroll breakdown</p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={mockSalaryByDept} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#f5eef7" />
               <XAxis dataKey="department" tick={{ fontSize: 10, fontFamily: 'Open Sans' }} tickLine={false} axisLine={false} />
               <YAxis tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fontFamily: 'Open Sans' }} tickLine={false} axisLine={false} />
               <Tooltip formatter={(v: number) => [formatCurrency(v), 'Total Salary']} />
-              <Bar dataKey="totalSalary" fill="#4f46e5" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="totalSalary" fill="#64327a" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -189,11 +186,11 @@ export function DashboardPage() {
           <p className="text-xs text-slate-500 mb-4">6-month rolling view</p>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={mockMonthlySalaryTrend} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#f5eef7" />
               <XAxis dataKey="month" tick={{ fontSize: 10, fontFamily: 'Open Sans' }} tickLine={false} axisLine={false} />
               <YAxis tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fontFamily: 'Open Sans' }} tickLine={false} axisLine={false} />
               <Tooltip formatter={(v: number) => [formatCurrency(v), 'Net Salary']} />
-              <Line type="monotone" dataKey="netSalary" stroke="#4f46e5" strokeWidth={2} dot={{ fill: '#4f46e5', r: 3 }} name="Net" />
+              <Line type="monotone" dataKey="netSalary" stroke="#64327a" strokeWidth={2} dot={{ fill: '#64327a', r: 3 }} name="Net" />
             </LineChart>
           </ResponsiveContainer>
         </div>
