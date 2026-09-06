@@ -25,6 +25,19 @@ enum EmployeeStatus {
   Inactive
 }
 
+enum Gender {
+  Male
+  Female
+  Other
+}
+
+enum MaritalStatus {
+  Single
+  Married
+  Divorced
+  Widowed
+}
+
 enum ScheduleStatus {
   Active
   Inactive
@@ -117,6 +130,15 @@ model Employee {
   bankAccountNumber   String?        @map("bank_account_number") @db.VarChar(50)
   bankName            String?        @map("bank_name") @db.VarChar(100)
   bankIfsc            String?        @map("bank_ifsc") @db.VarChar(50)
+
+  // Personal details shown on the employee's "Private Information" tab. All
+  // nullable — HR fills them in over time, and none are needed to onboard.
+  dateOfBirth         DateTime?      @map("date_of_birth") @db.Date
+  gender              Gender?
+  maritalStatus       MaritalStatus? @map("marital_status")
+  nationalId          String?        @map("national_id") @db.VarChar(50)
+  address             String?        @db.Text
+
   createdAt           DateTime       @default(now()) @map("created_at")
   updatedAt           DateTime       @updatedAt @map("updated_at")
 
@@ -145,6 +167,11 @@ model User {
   employeeId   String?    @unique @map("employee_id") @db.VarChar(36)
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  /// Id of the one session allowed to act as this user. Rewritten on every
+  /// login, so an older device's token stops matching and is rejected.
+  /// NULL means no active session (fresh account, or signed out).
+  activeSessionId String? @map("active_session_id") @db.VarChar(36)
 
   employee Employee? @relation(fields: [employeeId], references: [id])
 
@@ -241,6 +268,10 @@ model Attendance {
   date                DateTime        @db.Date
   checkIn             DateTime        @map("check_in")
   checkOut            DateTime?       @map("check_out")
+  checkInLat          Float?          @map("check_in_lat")
+  checkInLng          Float?          @map("check_in_lng")
+  checkOutLat         Float?          @map("check_out_lat")
+  checkOutLng         Float?          @map("check_out_lng")
   workedHours         Decimal         @default(0.00) @map("worked_hours") @db.Decimal(5, 2)
   overtimeHours       Decimal         @default(0.00) @map("overtime_hours") @db.Decimal(5, 2)
   status              AttendanceStatus @default(Present)
@@ -279,6 +310,13 @@ model TimeOffAllocation {
   status         ApprovalStatus @default(To_Approve)
   approverName   String?        @map("approver_name") @db.VarChar(100)
   description    String?        @db.Text
+
+  /// Attendance record this grant was auto-derived from (overtime -> comp off).
+  /// NULL for ordinary allocations created by HR. Unique so re-running the
+  /// accrual for a record revises the same row instead of stacking duplicates.
+  /// Intentionally a plain column, not a relation: no FK means deleting an
+  /// attendance row can never be blocked by, or cascade into, a leave balance.
+  sourceAttendanceId String? @unique @map("source_attendance_id") @db.VarChar(36)
 
   employee    Employee        @relation(fields: [employeeId], references: [id])
   timeOffType TimeOffType     @relation(fields: [timeOffTypeId], references: [id])

@@ -7,6 +7,8 @@ export interface JwtPayload {
   email:      string;
   role:       UserRole;
   employeeId: string | null;
+  /** Session id — must match users.active_session_id or the token is rejected. */
+  sid:        string;
 }
 
 // Augment Express Request

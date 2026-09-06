@@ -33,6 +33,13 @@ CREATE TABLE employees (
   bank_account_number VARCHAR(50)  NULL,
   bank_name           VARCHAR(100) NULL,
   bank_ifsc           VARCHAR(50)  NULL,
+  -- Personal details for the "Private Information" tab. All nullable: HR fills
+  -- these in over time and none are required to onboard an employee.
+  date_of_birth       DATE         NULL,
+  gender              ENUM('Male','Female','Other') NULL,
+  marital_status      ENUM('Single','Married','Divorced','Widowed') NULL,
+  national_id         VARCHAR(50)  NULL,
+  address             TEXT         NULL,
   created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -49,6 +56,8 @@ CREATE TABLE users (
   employee_id   VARCHAR(36)  NULL,
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  -- Single-device login: id of the only session allowed to act as this user.
+  active_session_id VARCHAR(36) NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_user_email    (email),
   UNIQUE KEY uq_user_employee (employee_id)
@@ -126,6 +135,10 @@ CREATE TABLE attendances (
   date                 DATE         NOT NULL,
   check_in             DATETIME     NOT NULL,
   check_out            DATETIME     NULL,
+  check_in_lat         DOUBLE       NULL,
+  check_in_lng         DOUBLE       NULL,
+  check_out_lat        DOUBLE       NULL,
+  check_out_lng        DOUBLE       NULL,
   worked_hours         DECIMAL(5,2) NOT NULL DEFAULT 0.00,
   overtime_hours       DECIMAL(5,2) NOT NULL DEFAULT 0.00,
   status               ENUM('Present','Late','Absent') NOT NULL DEFAULT 'Present',
@@ -157,7 +170,11 @@ CREATE TABLE time_off_allocations (
   status           ENUM('Approved','To Approve','Refused') NOT NULL DEFAULT 'To Approve',
   approver_name    VARCHAR(100) NULL,
   description      TEXT         NULL,
-  PRIMARY KEY (id)
+  -- Attendance row this grant was auto-derived from (overtime -> comp off).
+  -- NULL for ordinary HR allocations. UNIQUE makes the accrual idempotent.
+  source_attendance_id VARCHAR(36) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_toa_source_attendance (source_attendance_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 3.12 time_off_requests
