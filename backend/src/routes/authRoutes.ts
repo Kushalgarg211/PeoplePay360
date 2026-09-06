@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { login, getMe, forgotPassword, resetPassword } from '../controllers/authController';
+import { login, logout, getMe, forgotPassword, resetPassword } from '../controllers/authController';
 import { authenticateToken } from '../middlewares/authMiddleware';
 
 const router = Router();
 
 router.post('/login',           login);
+router.post('/logout',          authenticateToken, logout);
 router.get('/me',               authenticateToken, getMe);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password',  resetPassword);

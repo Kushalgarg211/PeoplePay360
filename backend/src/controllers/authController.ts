@@ -24,11 +24,21 @@ export const login = async (req: AuthRequest, res: Response, next: NextFunction)
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) throw createError('Invalid credentials', 401);
 
+    // Single-device login: mint a fresh session id and make it the ONLY one that
+    // counts. Any token issued to a previous device still verifies its signature,
+    // but its sid no longer matches this column, so authenticateToken rejects it.
+    const sid = uuidv4();
+    await prisma.user.update({
+      where: { id: user.id },
+      data:  { activeSessionId: sid },
+    });
+
     const payload: JwtPayload = {
       userId:     user.id,
       email:      user.email,
       role:       user.role,
       employeeId: user.employeeId ?? null,
+      sid,
     };
 
     const token = jwt.sign(payload, ENV.JWT_SECRET as string, { expiresIn: ENV.JWT_EXPIRES_IN as any });
@@ -46,6 +56,20 @@ export const login = async (req: AuthRequest, res: Response, next: NextFunction)
         },
       },
     });
+  } catch (err) { next(err); }
+};
+
+// POST /api/v1/auth/logout
+//
+// Releases the single-device slot. Scoped by sid via updateMany so a superseded
+// device can never clear a NEWER device's session — it simply matches 0 rows.
+export const logout = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    await prisma.user.updateMany({
+      where: { id: req.user!.userId, activeSessionId: req.user!.sid },
+      data:  { activeSessionId: null },
+    });
+    res.json({ success: true, message: 'Signed out.' });
   } catch (err) { next(err); }
 };
 

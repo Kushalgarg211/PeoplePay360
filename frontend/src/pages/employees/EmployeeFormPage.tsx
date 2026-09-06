@@ -89,6 +89,13 @@ export function EmployeeFormPage({ overrideId, selfView = false }: EmployeeFormP
             company: emp.companyName,
             bankAccount: emp.bankAccountNumber,
             city: emp.workLocation,
+            // Personal details. The API stores enums capitalised (Male, Single)
+            // while the <select> options are lowercase, so fold them here.
+            dateOfBirth: emp.dateOfBirth ? String(emp.dateOfBirth).slice(0, 10) : '',
+            gender: emp.gender ? String(emp.gender).toLowerCase() : undefined,
+            maritalStatus: emp.maritalStatus ? String(emp.maritalStatus).toLowerCase() : undefined,
+            nationalId: emp.nationalId ?? '',
+            address: emp.address ?? '',
             ...(emp.bankName  ? { bankName:  emp.bankName  } : {}),
             ...(emp.bankIfsc  ? { bankIfsc:  emp.bankIfsc  } : {}),
           } as any);
@@ -145,6 +152,13 @@ export function EmployeeFormPage({ overrideId, selfView = false }: EmployeeFormP
       bankName: (employee as any).bankName || null,
       bankIfsc: (employee as any).bankIfsc || null,
       managerId: managerId || null,
+      // Private Information tab. These were collected by the form but left out
+      // of the payload, so every edit to them was silently discarded.
+      dateOfBirth: employee.dateOfBirth || null,
+      gender: employee.gender || null,
+      maritalStatus: employee.maritalStatus || null,
+      nationalId: employee.nationalId || null,
+      address: employee.address || null,
     };
 
     try {

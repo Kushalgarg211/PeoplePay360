@@ -52,7 +52,11 @@ export const listAllocations = async (req: AuthRequest, res: Response, next: Nex
 // POST /api/v1/time-off/allocations
 export const createAllocation = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const alloc = await prisma.timeOffAllocation.create({ data: { id: uuidv4(), ...req.body } });
+    // sourceAttendanceId is owned by the overtime accrual engine and is UNIQUE —
+    // letting a manual grant set it would either hijack an auto-grant's slot or
+    // fail the constraint. Strip it rather than trusting the body.
+    const { sourceAttendanceId: _ignored, ...body } = req.body as Record<string, unknown>;
+    const alloc = await prisma.timeOffAllocation.create({ data: { id: uuidv4(), ...body } as any });
     res.status(201).json({ success: true, data: alloc });
   } catch (err) { next(err); }
 };

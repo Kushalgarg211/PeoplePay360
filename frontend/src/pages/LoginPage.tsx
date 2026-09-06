@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Eye, EyeOff, Loader2, Users, TrendingUp, Shield, Clock } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Users, TrendingUp, Shield, Clock, MonitorSmartphone } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import heroImg from '../assets/images.jpg';
 
@@ -12,16 +12,28 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  // Explain an involuntary sign-out (single-device login: another device took
+  // over this account). Read once and cleared so it shows only on arrival.
+  useEffect(() => {
+    const reason = sessionStorage.getItem('pp360_logout_reason');
+    if (reason) {
+      setNotice(reason);
+      sessionStorage.removeItem('pp360_logout_reason');
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setNotice('');
     setIsLoading(true);
     try {
       await login(email, password);
       navigate('/', { replace: true });
-    } catch {
-      setError('Invalid email or password.');
+    } catch (err: any) {
+      setError(err?.message || 'Invalid email or password.');
     } finally {
       setIsLoading(false);
     }
@@ -87,6 +99,13 @@ export function LoginPage() {
             <h2 className="text-2xl font-bold text-slate-900">Sign in</h2>
             <p className="text-slate-500 text-sm mt-1">Access your HR & Payroll workspace</p>
           </div>
+
+          {notice && (
+            <div className="mb-5 flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-md">
+              <MonitorSmartphone size={15} className="text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-800">{notice}</p>
+            </div>
+          )}
 
           {error && (
             <div className="mb-5 px-4 py-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
