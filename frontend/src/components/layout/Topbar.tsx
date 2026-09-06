@@ -5,7 +5,7 @@ import {
   UserCircle, Receipt, Home, Settings, FileText,
   Calendar, LayoutDashboard, Building2, CreditCard,
   List, BookOpen, BarChart3, ClipboardList, CalendarDays,
-  AlignLeft, BookMarked,
+  AlignLeft, BookMarked, MapPin,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission } from '../../lib/rbac';
@@ -238,8 +238,13 @@ export function Topbar() {
               <NavDropdown label="Employees" items={employeeItems} isActive={employeesActive} />
             )}
             {can('view:attendance') && (
-              <NavLink to="/attendance" className={({ isActive }) => `flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${isActive ? 'bg-primary-700 text-white' : 'text-primary-100 hover:bg-primary-800 hover:text-white'}`}>
+              <NavLink to="/attendance" end className={({ isActive }) => `flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${isActive ? 'bg-primary-700 text-white' : 'text-primary-100 hover:bg-primary-800 hover:text-white'}`}>
                 Attendance
+              </NavLink>
+            )}
+            {can('edit:attendance') && (
+              <NavLink to="/attendance/map" className={({ isActive }) => `flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${isActive ? 'bg-primary-700 text-white' : 'text-primary-100 hover:bg-primary-800 hover:text-white'}`}>
+                <MapPin size={14} /> Map
               </NavLink>
             )}
             {timeOffItems.length > 0 && (

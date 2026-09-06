@@ -27,6 +27,13 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      // Single-device login: the server refused this token because a newer login
+      // took the account's one session slot. Stash the reason so LoginPage can
+      // explain the sign-out instead of bouncing the user silently.
+      if (error.response?.data?.code === 'SESSION_SUPERSEDED') {
+        sessionStorage.setItem('pp360_logout_reason', error.response.data.message);
+      }
+
       localStorage.removeItem('pp360_token');
       localStorage.removeItem('pp360_user');
       const currentPath = window.location.pathname;

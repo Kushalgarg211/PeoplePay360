@@ -16,6 +16,7 @@ import { ContractsPage } from './pages/contracts/ContractsPage';
 import { WorkingSchedulesPage } from './pages/contracts/WorkingSchedulesPage';
 
 import { AttendancePage } from './pages/attendance/AttendancePage';
+import { DailyAttendanceMap } from './components/admin/DailyAttendanceMap';
 import { TimeOffPage } from './pages/timeoff/TimeOffPage';
 import { TimeOffDashboardPage } from './pages/timeoff/TimeOffDashboardPage';
 
@@ -75,6 +76,10 @@ function App() {
 
           <Route path="/attendance" element={
             <RequirePermission permission="view:attendance"><AttendancePage /></RequirePermission>
+          } />
+          {/* HR/Admin only — employee role lacks edit:attendance */}
+          <Route path="/attendance/map" element={
+            <RequirePermission permission="edit:attendance"><DailyAttendanceMap /></RequirePermission>
           } />
 
           <Route path="/time-off" element={<Navigate to="/time-off/requests" replace />} />

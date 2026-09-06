@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { LogIn, LogOut, Timer, AlertCircle, X } from 'lucide-react';
+import { LogIn, LogOut, Timer, AlertCircle, X, MapPin, Loader2, CalendarPlus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAttendance } from '../../context/AttendanceContext';
 import { cn } from '../../lib/utils';
@@ -9,6 +9,8 @@ export function AttendancePopover() {
   const {
     isCheckedIn, checkInTime, formattedElapsed, checkIn, checkOut,
     attendanceError, clearAttendanceError,
+    geoWarning, clearGeoWarning, isLocating,
+    compOff, clearCompOff,
   } = useAttendance();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -25,6 +27,18 @@ export function AttendancePopover() {
   useEffect(() => {
     if (attendanceError) setOpen(true);
   }, [attendanceError]);
+
+  // Same for a location warning — the clock action succeeded, but the user
+  // should know their coordinates were not recorded.
+  useEffect(() => {
+    if (geoWarning) setOpen(true);
+  }, [geoWarning]);
+
+  // Overtime just converted into paid leave. The check-out handler closes the
+  // popover, so re-open it — this is the only place the credit is announced.
+  useEffect(() => {
+    if (compOff) setOpen(true);
+  }, [compOff]);
 
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -75,6 +89,38 @@ export function AttendancePopover() {
               </div>
             )}
 
+            {/* Location unavailable — informational, action still succeeded */}
+            {geoWarning && !attendanceError && (
+              <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-md px-3 py-2.5 mb-3">
+                <MapPin size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700 flex-1">{geoWarning}</p>
+                <button onClick={clearGeoWarning} className="text-amber-400 hover:text-amber-600 shrink-0">
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+
+            {/* Overtime converted into paid leave */}
+            {compOff && !attendanceError && (
+              <div className="flex items-start gap-2 bg-violet-50 border border-violet-200 rounded-md px-3 py-2.5 mb-3">
+                <CalendarPlus size={13} className="text-[#6B3A7D] shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-[#2D1457]">
+                    +{compOff.days} day{compOff.days === 1 ? '' : 's'} {compOff.typeName}
+                  </p>
+                  <p className="text-xs text-violet-700 mt-0.5">
+                    {compOff.overtimeHours}h of overtime{' '}
+                    {compOff.status === 'Approved'
+                      ? 'was added to your leave balance.'
+                      : 'is pending HR approval.'}
+                  </p>
+                </div>
+                <button onClick={clearCompOff} className="text-violet-400 hover:text-violet-600 shrink-0">
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+
             {isCheckedIn && checkInTime ? (
               <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2.5 mb-4">
                 <Timer size={14} className="text-emerald-600 shrink-0" />
@@ -97,17 +143,32 @@ export function AttendancePopover() {
 
             <button
               id={isCheckedIn ? 'check-out-btn' : 'check-in-btn'}
-              onClick={() => { isCheckedIn ? checkOut() : checkIn(); setOpen(false); }}
+              disabled={isLocating}
+              onClick={async () => {
+                // Awaited so the button can show "Getting location…" while the
+                // browser resolves the fix. The error/warning effects re-open
+                // the popover if the result needs the user's attention.
+                if (isCheckedIn) await checkOut();
+                else await checkIn();
+                setOpen(false);
+              }}
               className={cn(
                 'w-full flex items-center justify-center gap-2 py-2 rounded-md text-sm font-semibold transition-colors',
+                'disabled:opacity-60 disabled:cursor-not-allowed',
                 isCheckedIn
                   ? 'bg-red-600 hover:bg-red-700 text-white'
                   : 'bg-[#6B3A7D] hover:bg-[#2D1457] text-white'
               )}
             >
-              {isCheckedIn ? <LogOut size={14} /> : <LogIn size={14} />}
-              {isCheckedIn ? 'Check Out' : 'Check In'}
+              {isLocating
+                ? <><Loader2 size={14} className="animate-spin" /> Getting location…</>
+                : <>{isCheckedIn ? <LogOut size={14} /> : <LogIn size={14} />}{isCheckedIn ? 'Check Out' : 'Check In'}</>
+              }
             </button>
+
+            <p className="flex items-center justify-center gap-1 text-[11px] text-slate-400 mt-2">
+              <MapPin size={10} /> Location is recorded with your attendance
+            </p>
           </div>
         </div>
       )}
