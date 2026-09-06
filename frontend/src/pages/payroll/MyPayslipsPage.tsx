@@ -2,6 +2,11 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Receipt, Download } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
+import {
+  TableToolbar, SearchInput, FilterSelect, SortMenu, ResetFiltersButton, ResultCount,
+} from '../../components/ui/TableToolbar';
+import { useTableSort } from '../../hooks/useTableSort';
+import type { SortAccessors, SortOption } from '../../hooks/useTableSort';
 import api from '../../lib/api';
 import { formatCurrency, formatDate } from '../../lib/utils';
 
@@ -13,6 +18,8 @@ export function MyPayslipsPage() {
   const navigate = useNavigate();
   const [myPayslips, setMyPayslips] = React.useState<any[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [search, setSearch] = React.useState('');
+  const [filterStatus, setFilterStatus] = React.useState('all');
 
   React.useEffect(() => {
     const fetch = async () => {
@@ -45,6 +52,42 @@ export function MyPayslipsPage() {
     }
   };
 
+  const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+  const statusOptions = React.useMemo(() => {
+    const present = [...new Set(myPayslips.map((ps) => String(ps.status ?? '').toLowerCase()).filter(Boolean))];
+    return present.sort().map((s) => ({ value: s, label: titleCase(s) }));
+  }, [myPayslips]);
+
+  const matched = myPayslips.filter((ps) => {
+    if (search && !String(ps.payrun?.name ?? '').toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterStatus !== 'all' && String(ps.status ?? '').toLowerCase() !== filterStatus) return false;
+    return true;
+  });
+
+  const sortAccessors: SortAccessors<any> = {
+    // The period lives on the payrun, not the payslip row.
+    period: (ps) => (ps.payrun?.periodStart ? new Date(ps.payrun.periodStart).getTime() : null),
+    payrun: (ps) => ps.payrun?.name,
+    net:    (ps) => Number(ps.netSalary ?? 0),
+    status: (ps) => String(ps.status ?? ''),
+  };
+
+  const sortOptions: SortOption[] = [
+    { key: 'period', label: 'Period' },
+    { key: 'net',    label: 'Net salary' },
+    { key: 'payrun', label: 'Pay run' },
+    { key: 'status', label: 'Status' },
+  ];
+
+  // Most recent period first — your latest payslip is the one you came for.
+  const { sorted: filtered, sort, setSort } =
+    useTableSort(matched, sortAccessors, { key: 'period', dir: 'desc' });
+
+  const filtersActive = Boolean(search) || filterStatus !== 'all';
+  const resetFilters = () => { setSearch(''); setFilterStatus('all'); };
+
+  // Hooks above run on every render; the loading return has to come after them.
   if (isLoading) {
     return (
       <div className="py-12 flex justify-center">
@@ -58,20 +101,46 @@ export function MyPayslipsPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">My Payslips</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {myPayslips.length} payslip{myPayslips.length !== 1 ? 's' : ''}
-          </p>
+          <ResultCount shown={filtered.length} total={myPayslips.length} noun="payslip" />
         </div>
       </div>
 
-      {myPayslips.length === 0 ? (
+      {/* Only worth showing once there is more than one payslip to sift through. */}
+      {myPayslips.length > 1 && (
+        <TableToolbar>
+          <SearchInput
+            id="my-payslip-search"
+            value={search}
+            onChange={setSearch}
+            placeholder="Search by pay run…"
+          />
+          <FilterSelect
+            id="my-payslip-status-filter"
+            value={filterStatus}
+            onChange={setFilterStatus}
+            options={statusOptions}
+            allLabel="All Statuses"
+          />
+          <SortMenu id="my-payslip-sort-btn" options={sortOptions} sort={sort} onChange={setSort} />
+          <ResetFiltersButton show={filtersActive} onReset={resetFilters} />
+        </TableToolbar>
+      )}
+
+      {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-400">
           <Receipt size={36} className="opacity-40" />
-          <p className="text-sm">No payslips available yet.</p>
+          <p className="text-sm">
+            {filtersActive ? 'No payslips match your filters.' : 'No payslips available yet.'}
+          </p>
+          {filtersActive && (
+            <button onClick={resetFilters} className="text-xs text-primary-600 hover:underline">
+              Clear filters
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-2">
-          {myPayslips.map((ps) => {
+          {filtered.map((ps) => {
             // Period dates live on ps.payrun, not on the payslip row itself
             const periodStart = ps.payrun?.periodStart;
             const periodEnd   = ps.payrun?.periodEnd;

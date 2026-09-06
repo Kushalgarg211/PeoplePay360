@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
-import { Plus, ArrowLeft, Edit3, Save, X, Search } from 'lucide-react';
+import { Plus, ArrowLeft, Edit3, Save, X } from 'lucide-react';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
+import {
+  TableToolbar, SearchInput, FilterSelect, SortMenu, ResetFiltersButton, ResultCount,
+} from '../../components/ui/TableToolbar';
+import { useTableSort } from '../../hooks/useTableSort';
+import type { SortAccessors, SortOption } from '../../hooks/useTableSort';
 import api from '../../lib/api';
 import type { SalaryRule, SalaryRuleCategory } from '../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -30,6 +35,8 @@ export function SalaryRulesPage() {
   const [editing, setEditing] = useState(false);
   const [search, setSearch] = useState('');
   const [filterStructure, setFilterStructure] = useState('all');
+  const [filterCategory, setFilterCategory] = useState('all');
+  const [filterActive, setFilterActive] = useState('all');
 
   React.useEffect(() => {
     fetchData();
@@ -50,12 +57,6 @@ export function SalaryRulesPage() {
       setIsLoading(false);
     }
   };
-
-  const filtered = rules.filter((r) => {
-    const matchSearch = !search || r.name.toLowerCase().includes(search.toLowerCase()) || r.code.toLowerCase().includes(search.toLowerCase());
-    const matchStructure = filterStructure === 'all' || r.structureId === filterStructure;
-    return matchSearch && matchStructure;
-  });
 
   const createRule = async () => {
     const structureId = filterStructure === 'all' ? structures[0]?.id : filterStructure;
@@ -78,16 +79,69 @@ export function SalaryRulesPage() {
 
   const getStructureName = (id: string) => structures.find((s) => s.id === id)?.name ?? id;
 
+  // Categories are a fixed, meaningful set, but only offer the ones in use —
+  // an empty result tells you nothing here.
+  const categoryOptions = React.useMemo(() => {
+    const present = new Set(rules.map((r) => (r.category || '').toLowerCase()));
+    return (Object.keys(categoryConfig) as SalaryRuleCategory[])
+      .filter((c) => present.has(c))
+      .map((c) => ({ value: c, label: categoryConfig[c].label }));
+  }, [rules]);
+
+  const activeOptions = [
+    { value: 'active',   label: 'Active' },
+    { value: 'inactive', label: 'Inactive' },
+  ];
+
+  const matched = rules.filter((r) => {
+    if (search && ![r.name, r.code].join(' ').toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterStructure !== 'all' && r.structureId !== filterStructure) return false;
+    if (filterCategory !== 'all' && (r.category || '').toLowerCase() !== filterCategory) return false;
+    if (filterActive === 'active'   && !r.active) return false;
+    if (filterActive === 'inactive' &&  r.active) return false;
+    return true;
+  });
+
+  const sortAccessors: SortAccessors<SalaryRule> = {
+    code:      (r) => r.code,
+    name:      (r) => r.name,
+    category:  (r) => categoryConfig[(r.category || '').toLowerCase() as SalaryRuleCategory]?.label ?? r.category,
+    structure: (r) => getStructureName(r.structureId),
+    sequence:  (r) => Number(r.sequence ?? 0),
+    amount:    (r) => Number(r.amount ?? 0),
+    active:    (r) => (r.active ? 'Active' : 'Inactive'),
+  };
+
+  const sortOptions: SortOption[] = [
+    { key: 'sequence',  label: 'Sequence' },
+    { key: 'code',      label: 'Code' },
+    { key: 'name',      label: 'Name' },
+    { key: 'category',  label: 'Category' },
+    { key: 'structure', label: 'Structure' },
+    { key: 'amount',    label: 'Fixed amount' },
+    { key: 'active',    label: 'Status' },
+  ];
+
+  // Sequence ascending is the order the rules actually evaluate in.
+  const { sorted: filtered, sort, setSort, toggleSort } =
+    useTableSort(matched, sortAccessors, { key: 'sequence', dir: 'asc' });
+
+  const filtersActive = Boolean(search) || filterStructure !== 'all'
+    || filterCategory !== 'all' || filterActive !== 'all';
+  const resetFilters = () => {
+    setSearch(''); setFilterStructure('all'); setFilterCategory('all'); setFilterActive('all');
+  };
+
   const listColumns: Column<SalaryRule>[] = [
     {
-      key: 'code', header: 'Code',
+      key: 'code', header: 'Code', sortKey: 'code',
       render: (_, r) => (
         <span className="font-mono text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">{r.code}</span>
       ),
     },
-    { key: 'name', header: 'Name', render: (_, r) => <span className="font-medium text-sm text-slate-800">{r.name}</span> },
+    { key: 'name', header: 'Name', sortKey: 'name', render: (_, r) => <span className="font-medium text-sm text-slate-800">{r.name}</span> },
     {
-      key: 'category', header: 'Category',
+      key: 'category', header: 'Category', sortKey: 'category',
       render: (_, r) => {
         const cat = (r.category || '').toLowerCase() as SalaryRuleCategory;
         const cfg = categoryConfig[cat] || { label: r.category || 'Unknown', variant: 'default' as const };
@@ -95,12 +149,12 @@ export function SalaryRulesPage() {
       },
     },
     {
-      key: 'structureId', header: 'Structure',
+      key: 'structureId', header: 'Structure', sortKey: 'structure',
       render: (_, r) => <span className="text-sm text-slate-600">{getStructureName(r.structureId)}</span>,
     },
-    { key: 'sequence', header: 'Seq', render: (_, r) => <span className="text-sm text-slate-500">{r.sequence}</span> },
+    { key: 'sequence', header: 'Seq', sortKey: 'sequence', render: (_, r) => <span className="text-sm text-slate-500">{r.sequence}</span> },
     {
-      key: 'computation', header: 'Computation',
+      key: 'computation', header: 'Computation', sortKey: 'amount',
       render: (_, r) => (
         <span className="text-sm text-slate-600">
           {r.computation === 'percentage' ? `${r.percentage}% of ${r.basedOn}` : r.computation === 'fixed' && r.amount > 0 ? formatCurrency(r.amount) : 'Computed'}
@@ -108,7 +162,7 @@ export function SalaryRulesPage() {
       ),
     },
     {
-      key: 'active', header: 'Status',
+      key: 'active', header: 'Status', sortKey: 'active',
       render: (_, r) => <Badge variant={r.active ? 'success' : 'default'} dot>{r.active ? 'Active' : 'Inactive'}</Badge>,
     },
   ];
@@ -207,31 +261,46 @@ export function SalaryRulesPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Salary Rules</h1>
-          <p className="text-xs text-slate-500 mt-0.5">{filtered.length} rules</p>
+          <ResultCount shown={filtered.length} total={rules.length} noun="rule" />
         </div>
         {canEdit && (
           <button className="btn-primary" onClick={createRule}><Plus size={13} /> ADD</button>
         )}
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="relative max-w-xs flex-1">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text" placeholder="Search rules…" value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="input-field pl-8 text-sm"
-          />
-        </div>
-        <select
+      <TableToolbar>
+        <SearchInput
+          id="rule-search"
+          value={search}
+          onChange={setSearch}
+          placeholder="Search rules…"
+        />
+        {/* Every structure is offered here, not just the ones with rules —
+            "this structure has no rules yet" is worth being able to see. */}
+        <FilterSelect
+          id="rule-structure-filter"
           value={filterStructure}
-          onChange={(e) => setFilterStructure(e.target.value)}
-          className="input-field w-auto text-sm"
-        >
-          <option value="all">All Structures</option>
-          {structures.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-      </div>
+          onChange={setFilterStructure}
+          options={structures.map((s) => ({ value: s.id, label: s.name }))}
+          allLabel="All Structures"
+        />
+        <FilterSelect
+          id="rule-category-filter"
+          value={filterCategory}
+          onChange={setFilterCategory}
+          options={categoryOptions}
+          allLabel="All Categories"
+        />
+        <FilterSelect
+          id="rule-active-filter"
+          value={filterActive}
+          onChange={setFilterActive}
+          options={activeOptions}
+          allLabel="All Statuses"
+        />
+        <SortMenu id="rule-sort-btn" options={sortOptions} sort={sort} onChange={setSort} />
+        <ResetFiltersButton show={filtersActive} onReset={resetFilters} />
+      </TableToolbar>
 
       {isLoading ? (
         <div className="py-12 flex justify-center">
@@ -243,6 +312,13 @@ export function SalaryRulesPage() {
           data={filtered}
           rowKey={(r) => r.id}
           onRowClick={(r) => { setSelected(r); setEditing(false); setView('detail'); }}
+          sort={sort}
+          onSortChange={toggleSort}
+          emptyState={
+            <p className="text-slate-400 text-sm">
+              {filtersActive ? 'No salary rules match your filters.' : 'No salary rules yet.'}
+            </p>
+          }
         />
       )}
     </div>

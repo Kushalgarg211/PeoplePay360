@@ -3,6 +3,11 @@ import { Plus, ArrowLeft, Save, X, Edit3 } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
+import {
+  TableToolbar, SearchInput, FilterSelect, SortMenu, ResetFiltersButton, ResultCount,
+} from '../../components/ui/TableToolbar';
+import { useTableSort } from '../../hooks/useTableSort';
+import type { SortAccessors, SortOption } from '../../hooks/useTableSort';
 import api from '../../lib/api';
 import type { WorkingSchedule, WorkingScheduleLine } from '../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -42,16 +47,37 @@ type View = 'list' | 'detail';
 
 const listColumns: Column<WorkingSchedule>[] = [
   {
-    key: 'name', header: 'Schedule Name',
+    key: 'name', header: 'Schedule Name', sortKey: 'name',
     render: (_, s) => <span className="font-semibold text-sm text-slate-800">{s.name}</span>,
   },
-  { key: 'daysPerWeek', header: 'Days / Week', render: (_, s) => <span className="text-sm">{s.daysPerWeek}</span> },
-  { key: 'hoursPerWeek', header: 'Hours / Week', render: (_, s) => <span className="text-sm">{s.hoursPerWeek}h</span> },
-  { key: 'company', header: 'Company', render: (_, s) => <span className="text-sm text-slate-600">{s.company ?? 'My Company'}</span> },
+  { key: 'daysPerWeek', header: 'Days / Week', sortKey: 'days', render: (_, s) => <span className="text-sm">{s.daysPerWeek}</span> },
+  { key: 'hoursPerWeek', header: 'Hours / Week', sortKey: 'hours', render: (_, s) => <span className="text-sm">{s.hoursPerWeek}h</span> },
+  { key: 'company', header: 'Company', sortKey: 'company', render: (_, s) => <span className="text-sm text-slate-600">{s.company ?? 'My Company'}</span> },
   {
-    key: 'status', header: 'Status',
+    key: 'status', header: 'Status', sortKey: 'status',
     render: (_, s) => <Badge variant={s.status === 'active' ? 'success' : 'default'} dot>{s.status === 'active' ? 'Active' : 'Inactive'}</Badge>,
   },
+];
+
+const sortAccessors: SortAccessors<WorkingSchedule> = {
+  name:    (s) => s.name,
+  days:    (s) => Number(s.daysPerWeek ?? 0),
+  hours:   (s) => Number(s.hoursPerWeek ?? 0),
+  company: (s) => s.company ?? 'My Company',
+  status:  (s) => s.status,
+};
+
+const sortOptions: SortOption[] = [
+  { key: 'name',    label: 'Schedule name' },
+  { key: 'hours',   label: 'Hours / week' },
+  { key: 'days',    label: 'Days / week' },
+  { key: 'company', label: 'Company' },
+  { key: 'status',  label: 'Status' },
+];
+
+const statusOptions = [
+  { value: 'active',   label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
 ];
 
 export function WorkingSchedulesPage() {
@@ -97,10 +123,28 @@ export function WorkingSchedulesPage() {
   const [editing, setEditing] = useState(false);
   const [isNew, setIsNew] = useState(false);
   const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterCompany, setFilterCompany] = useState('all');
 
-  const filtered = schedules.filter((s) =>
-    !search || s.name.toLowerCase().includes(search.toLowerCase())
-  );
+  // Companies come from the loaded rows — a company with no schedule can only
+  // ever return an empty list.
+  const companyOptions = React.useMemo(() => {
+    const seen = new Set(schedules.map((s) => s.company ?? 'My Company'));
+    return [...seen].sort((a, b) => a.localeCompare(b)).map((c) => ({ value: c, label: c }));
+  }, [schedules]);
+
+  const matched = schedules.filter((s) => {
+    if (search && ![s.name, s.company ?? ''].join(' ').toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterStatus !== 'all' && s.status !== filterStatus) return false;
+    if (filterCompany !== 'all' && (s.company ?? 'My Company') !== filterCompany) return false;
+    return true;
+  });
+
+  const { sorted: filtered, sort, setSort, toggleSort } =
+    useTableSort(matched, sortAccessors, { key: 'name', dir: 'asc' });
+
+  const filtersActive = Boolean(search) || filterStatus !== 'all' || filterCompany !== 'all';
+  const resetFilters = () => { setSearch(''); setFilterStatus('all'); setFilterCompany('all'); };
 
   // Ensure all 7 days are represented in lines (fill missing days with blanks)
   const fillAllDays = (lines: WorkingScheduleLine[]): WorkingScheduleLine[] =>
@@ -394,7 +438,7 @@ export function WorkingSchedulesPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Working Schedules</h1>
-          <p className="text-xs text-slate-500 mt-0.5">{schedules.length} schedules</p>
+          <ResultCount shown={filtered.length} total={schedules.length} noun="schedule" />
         </div>
         {canEdit && (
           <button className="btn-primary" onClick={openNew}>
@@ -402,15 +446,30 @@ export function WorkingSchedulesPage() {
           </button>
         )}
       </div>
-      <div className="max-w-xs">
-        <input
-          type="text"
-          placeholder="Search schedules…"
+      <TableToolbar>
+        <SearchInput
+          id="schedule-search"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="input-field text-sm"
+          onChange={setSearch}
+          placeholder="Search schedules…"
         />
-      </div>
+        <FilterSelect
+          id="schedule-status-filter"
+          value={filterStatus}
+          onChange={setFilterStatus}
+          options={statusOptions}
+          allLabel="All Statuses"
+        />
+        <FilterSelect
+          id="schedule-company-filter"
+          value={filterCompany}
+          onChange={setFilterCompany}
+          options={companyOptions}
+          allLabel="All Companies"
+        />
+        <SortMenu id="schedule-sort-btn" options={sortOptions} sort={sort} onChange={setSort} />
+        <ResetFiltersButton show={filtersActive} onReset={resetFilters} />
+      </TableToolbar>
       {isLoading ? (
         <div className="py-12 flex justify-center">
           <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
@@ -421,6 +480,13 @@ export function WorkingSchedulesPage() {
           data={filtered}
           rowKey={(s) => s.id}
           onRowClick={openDetail}
+          sort={sort}
+          onSortChange={toggleSort}
+          emptyState={
+            <p className="text-slate-400 text-sm">
+              {filtersActive ? 'No schedules match your filters.' : 'No schedules yet.'}
+            </p>
+          }
         />
       )}
     </div>

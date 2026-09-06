@@ -5,6 +5,11 @@ import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
+import {
+  TableToolbar, SearchInput, FilterSelect, SortMenu, ResetFiltersButton, ResultCount,
+} from '../../components/ui/TableToolbar';
+import { useTableSort } from '../../hooks/useTableSort';
+import type { SortAccessors, SortOption } from '../../hooks/useTableSort';
 import api from '../../lib/api';
 import type { Payrun } from '../../types';
 import { formatDate, formatCurrency } from '../../lib/utils';
@@ -30,6 +35,8 @@ export function PayrunsPage() {
   const [eligibles, setEligibles] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStructure, setFilterStructure] = useState('all');
 
   const [wizardOpen, setWizardOpen] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
@@ -116,13 +123,61 @@ export function PayrunsPage() {
     }
   };
 
-  const filtered = payruns.filter((p) =>
-    !search || p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const statusOptions = React.useMemo(() => {
+    const present = [...new Set(payruns.map((p) => (p.status || '').toLowerCase()).filter(Boolean))];
+    return present.sort().map((s) => ({ value: s, label: statusConfig[s]?.label ?? s }));
+  }, [payruns]);
+
+  // Only structures that actually appear on a payrun — the full structure list
+  // would offer choices that can only ever return nothing.
+  const structureOptions = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    payruns.forEach((p) => {
+      if (p.salaryStructure?.id) seen.set(p.salaryStructure.id, p.salaryStructure.name);
+    });
+    return [...seen.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [payruns]);
+
+  const matched = payruns.filter((p) => {
+    if (search && ![p.name, p.salaryStructure?.name ?? '']
+      .join(' ').toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterStatus !== 'all' && (p.status || '').toLowerCase() !== filterStatus) return false;
+    if (filterStructure !== 'all' && p.salaryStructure?.id !== filterStructure) return false;
+    return true;
+  });
+
+  const sortAccessors: SortAccessors<Payrun> = {
+    name:      (p) => p.name,
+    period:    (p) => (p.periodStart ? new Date(p.periodStart).getTime() : null),
+    status:    (p) => (p.status || '').toLowerCase(),
+    payslips:  (p) => Number(p.payslipCount ?? 0),
+    gross:     (p) => Number(p.totalGross ?? 0),
+    net:       (p) => Number(p.totalNet ?? 0),
+    structure: (p) => p.salaryStructure?.name,
+  };
+
+  const sortOptions: SortOption[] = [
+    { key: 'period',    label: 'Period start' },
+    { key: 'name',      label: 'Payrun name' },
+    { key: 'status',    label: 'Status' },
+    { key: 'payslips',  label: 'Payslip count' },
+    { key: 'gross',     label: 'Total gross' },
+    { key: 'net',       label: 'Total net' },
+    { key: 'structure', label: 'Salary structure' },
+  ];
+
+  // Newest period first — the run you just created is the one you want.
+  const { sorted: filtered, sort, setSort, toggleSort } =
+    useTableSort(matched, sortAccessors, { key: 'period', dir: 'desc' });
+
+  const filtersActive = Boolean(search) || filterStatus !== 'all' || filterStructure !== 'all';
+  const resetFilters = () => { setSearch(''); setFilterStatus('all'); setFilterStructure('all'); };
 
   const columns: Column<Payrun>[] = [
     {
-      key: 'name', header: 'Payrun',
+      key: 'name', header: 'Payrun', sortKey: 'name',
       render: (_, p) => (
         <div>
           <p className="font-semibold text-sm text-slate-900">{p.name}</p>
@@ -131,20 +186,20 @@ export function PayrunsPage() {
       ),
     },
     {
-      key: 'periodStart', header: 'Period',
+      key: 'periodStart', header: 'Period', sortKey: 'period',
       render: (_, p) => <span className="text-sm text-slate-600">{formatDate(p.periodStart)} – {formatDate(p.periodEnd)}</span>,
     },
     {
-      key: 'status', header: 'Status',
+      key: 'status', header: 'Status', sortKey: 'status',
       render: (_, p) => {
         const safeStatus = (p.status || '').toLowerCase();
         const cfg = statusConfig[safeStatus] || { variant: 'default', label: p.status || 'Unknown' };
         return <Badge variant={cfg.variant} dot>{cfg.label}</Badge>;
       },
     },
-    { key: 'payslipCount', header: 'Payslips', render: (_, p) => <span className="font-semibold text-sm">{p.payslipCount} employees</span> },
-    { key: 'totalGross',   header: 'Total Gross', render: (_, p) => <span className="text-sm">{formatCurrency(p.totalGross)}</span> },
-    { key: 'totalNet',     header: 'Total Net',   render: (_, p) => <span className="font-bold text-sm text-slate-900">{formatCurrency(p.totalNet)}</span> },
+    { key: 'payslipCount', header: 'Payslips',    sortKey: 'payslips', render: (_, p) => <span className="font-semibold text-sm">{p.payslipCount} employees</span> },
+    { key: 'totalGross',   header: 'Total Gross', sortKey: 'gross',    render: (_, p) => <span className="text-sm">{formatCurrency(p.totalGross)}</span> },
+    { key: 'totalNet',     header: 'Total Net',   sortKey: 'net',      render: (_, p) => <span className="font-bold text-sm text-slate-900">{formatCurrency(p.totalNet)}</span> },
     {
       key: 'warnings', header: '',
       render: (_, p) => p.warnings?.length ? (
@@ -160,7 +215,7 @@ export function PayrunsPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Payruns</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Overview of past payroll periods.</p>
+          <ResultCount shown={filtered.length} total={payruns.length} noun="payroll period" />
         </div>
         {canEdit && (
           <button id="new-payrun-btn" onClick={openWizard} className="btn-primary">
@@ -169,14 +224,30 @@ export function PayrunsPage() {
         )}
       </div>
 
-      <div className="relative max-w-xs">
-        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
-          type="text" placeholder="Search payruns…" value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="input-field pl-8 text-sm"
+      <TableToolbar>
+        <SearchInput
+          id="payrun-search"
+          value={search}
+          onChange={setSearch}
+          placeholder="Search payruns…"
         />
-      </div>
+        <FilterSelect
+          id="payrun-status-filter"
+          value={filterStatus}
+          onChange={setFilterStatus}
+          options={statusOptions}
+          allLabel="All Statuses"
+        />
+        <FilterSelect
+          id="payrun-structure-filter"
+          value={filterStructure}
+          onChange={setFilterStructure}
+          options={structureOptions}
+          allLabel="All Structures"
+        />
+        <SortMenu id="payrun-sort-btn" options={sortOptions} sort={sort} onChange={setSort} />
+        <ResetFiltersButton show={filtersActive} onReset={resetFilters} />
+      </TableToolbar>
 
       {isLoading ? (
         <div className="py-12 flex justify-center">
@@ -188,6 +259,13 @@ export function PayrunsPage() {
           data={filtered}
           rowKey={(p) => p.id}
           onRowClick={(p) => navigate(`/payroll/payruns/${p.id}`)}
+          sort={sort}
+          onSortChange={toggleSort}
+          emptyState={
+            <p className="text-slate-400 text-sm">
+              {filtersActive ? 'No payruns match your filters.' : 'No payruns yet.'}
+            </p>
+          }
         />
       )}
 

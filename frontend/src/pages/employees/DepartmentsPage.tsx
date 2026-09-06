@@ -2,6 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Briefcase, Pencil, X, Save } from 'lucide-react';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
+import {
+  TableToolbar, SearchInput, FilterSelect, SortMenu, ResetFiltersButton, ResultCount,
+} from '../../components/ui/TableToolbar';
+import { useTableSort } from '../../hooks/useTableSort';
+import type { SortAccessors, SortOption } from '../../hooks/useTableSort';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission } from '../../lib/rbac';
 import api from '../../lib/api';
@@ -18,6 +23,8 @@ export function DepartmentsPage() {
 
   const [departments, setDepartments]   = useState<Department[]>([]);
   const [isLoading, setIsLoading]       = useState(true);
+  const [search, setSearch]             = useState('');
+  const [filterStaffed, setFilterStaffed] = useState('all');
 
   // Modal state — null = closed, 'new' = creating, department = editing
   const [modal, setModal]               = useState<null | 'new' | Department>(null);
@@ -86,10 +93,42 @@ export function DepartmentsPage() {
     }
   };
 
+  // A department row only carries a name and a headcount, so the one filter
+  // worth offering is whether anybody is actually in it.
+  const staffedOptions = [
+    { value: 'staffed', label: 'Has employees' },
+    { value: 'empty',   label: 'No employees' },
+  ];
+
+  const matched = departments.filter((d) => {
+    if (search && !d.name.toLowerCase().includes(search.toLowerCase())) return false;
+    const count = Number(d.employeeCount ?? 0);
+    if (filterStaffed === 'staffed' && count === 0) return false;
+    if (filterStaffed === 'empty'   && count > 0)   return false;
+    return true;
+  });
+
+  const sortAccessors: SortAccessors<Department> = {
+    name:      (d) => d.name,
+    employees: (d) => Number(d.employeeCount ?? 0),
+  };
+
+  const sortOptions: SortOption[] = [
+    { key: 'name',      label: 'Department name' },
+    { key: 'employees', label: 'Employee count' },
+  ];
+
+  const { sorted: filtered, sort, setSort, toggleSort } =
+    useTableSort(matched, sortAccessors, { key: 'name', dir: 'asc' });
+
+  const filtersActive = Boolean(search) || filterStaffed !== 'all';
+  const resetFilters = () => { setSearch(''); setFilterStaffed('all'); };
+
   const columns: Column<Department>[] = [
     {
       key: 'name',
       header: 'Department',
+      sortKey: 'name',
       render: (_, d) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-md bg-purple-50 text-purple-600 flex items-center justify-center border border-purple-100 shrink-0">
@@ -102,6 +141,7 @@ export function DepartmentsPage() {
     {
       key: 'employeeCount',
       header: 'Employees',
+      sortKey: 'employees',
       render: (_, d) => <span className="text-sm text-slate-600">{d.employeeCount}</span>,
     },
     ...(canEdit
@@ -128,9 +168,9 @@ export function DepartmentsPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Departments</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {isLoading ? 'Loading…' : `${departments.length} department${departments.length !== 1 ? 's' : ''}`}
-          </p>
+          {isLoading
+            ? <p className="text-xs text-slate-500 mt-0.5">Loading…</p>
+            : <ResultCount shown={filtered.length} total={departments.length} noun="department" />}
         </div>
         {canEdit && (
           <button className="btn-primary" onClick={openNew}>
@@ -139,6 +179,24 @@ export function DepartmentsPage() {
         )}
       </div>
 
+      <TableToolbar>
+        <SearchInput
+          id="department-search"
+          value={search}
+          onChange={setSearch}
+          placeholder="Search departments…"
+        />
+        <FilterSelect
+          id="department-staffed-filter"
+          value={filterStaffed}
+          onChange={setFilterStaffed}
+          options={staffedOptions}
+          allLabel="All Departments"
+        />
+        <SortMenu id="department-sort-btn" options={sortOptions} sort={sort} onChange={setSort} />
+        <ResetFiltersButton show={filtersActive} onReset={resetFilters} />
+      </TableToolbar>
+
       {isLoading ? (
         <div className="py-12 flex justify-center">
           <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
@@ -146,9 +204,16 @@ export function DepartmentsPage() {
       ) : (
         <DataTable
           columns={columns}
-          data={departments}
+          data={filtered}
           rowKey={(d) => d.id}
           onRowClick={canEdit ? (d) => openEdit(d) : undefined}
+          sort={sort}
+          onSortChange={toggleSort}
+          emptyState={
+            <p className="text-slate-400 text-sm">
+              {filtersActive ? 'No departments match your filters.' : 'No departments yet.'}
+            </p>
+          }
         />
       )}
 

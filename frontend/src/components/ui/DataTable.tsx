@@ -1,6 +1,7 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import type { SortState } from '../../hooks/useTableSort';
 
 export interface Column<T> {
   key: string;
@@ -8,6 +9,12 @@ export interface Column<T> {
   width?: string;
   render?: (value: unknown, row: T) => React.ReactNode;
   className?: string;
+  /**
+   * Sort key for this column. Set it to make the header clickable — the value
+   * must match a key in the accessor map passed to useTableSort. Omit for
+   * columns that hold no meaningfully orderable value (actions, checkboxes).
+   */
+  sortKey?: string;
 }
 
 interface DataTableProps<T> {
@@ -26,6 +33,10 @@ interface DataTableProps<T> {
   className?: string;
   stickyHeader?: boolean;
   compact?: boolean;
+  /** Current sort, used to draw the arrow. Pass with onSortChange to enable header sorting. */
+  sort?: SortState;
+  /** Called with the clicked column's sortKey; the caller flips direction. */
+  onSortChange?: (sortKey: string) => void;
 }
 
 export function DataTable<T>({
@@ -39,6 +50,8 @@ export function DataTable<T>({
   className,
   stickyHeader = false,
   compact = false,
+  sort,
+  onSortChange,
 }: DataTableProps<T>) {
   const totalPages = pagination ? Math.ceil(pagination.total / pagination.pageSize) : 1;
   const cellPy = compact ? 'py-2' : 'py-3';
@@ -49,18 +62,41 @@ export function DataTable<T>({
         <table className="w-full text-sm">
           <thead className={cn('bg-slate-50 border-b border-slate-200', stickyHeader && 'sticky top-0 z-10')}>
             <tr>
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  className={cn(
-                    'px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap',
-                    col.width,
-                    col.className
-                  )}
-                >
-                  {col.header}
-                </th>
-              ))}
+              {columns.map((col) => {
+                // A header is only interactive when the column declares a sort key
+                // AND the page wired up a handler — otherwise it stays plain text.
+                const sortable = Boolean(col.sortKey && onSortChange);
+                const isActive = sortable && sort?.key === col.sortKey;
+                const Arrow = !isActive ? ChevronsUpDown : sort?.dir === 'asc' ? ChevronUp : ChevronDown;
+                return (
+                  <th
+                    key={col.key}
+                    aria-sort={isActive ? (sort?.dir === 'asc' ? 'ascending' : 'descending') : undefined}
+                    className={cn(
+                      'px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap',
+                      isActive ? 'text-primary-700' : 'text-slate-500',
+                      col.width,
+                      col.className
+                    )}
+                  >
+                    {sortable ? (
+                      <button
+                        type="button"
+                        onClick={() => onSortChange!(col.sortKey!)}
+                        className="group inline-flex items-center gap-1 uppercase tracking-wider hover:text-primary-700 transition-colors"
+                      >
+                        {col.header}
+                        <Arrow
+                          size={12}
+                          className={cn('shrink-0', isActive ? 'text-primary-600' : 'text-slate-300 group-hover:text-slate-400')}
+                        />
+                      </button>
+                    ) : (
+                      col.header
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">

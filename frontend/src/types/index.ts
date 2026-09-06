@@ -1,6 +1,7 @@
 // ─── Auth & RBAC ─────────────────────────────────────────────────────────────
 export type UserRole =
   | 'employee'
+  | 'manager'
   | 'hr_manager'
   | 'hr_payroll_user'
   | 'hr_payroll_manager'
@@ -110,7 +111,7 @@ export interface SalaryRule {
 export interface Contract {
   id: string;
   employeeId: string;
-  employee: Pick<Employee, 'fullName' | 'firstName' | 'lastName' | 'employeeNumber'>;
+  employee: Pick<Employee, 'id' | 'fullName' | 'firstName' | 'lastName' | 'employeeNumber'>;
   reference: string;
   status: ContractStatus;
   startDate: string;

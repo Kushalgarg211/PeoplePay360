@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, LayoutGrid, List, Mail, Briefcase } from 'lucide-react';
-import { Card } from '../../components/ui/Card';
+import { Plus, LayoutGrid, List, Mail, Users } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
+import {
+  TableToolbar, SearchInput, FilterSelect, SortMenu, ResetFiltersButton,
+} from '../../components/ui/TableToolbar';
+import { useTableSort } from '../../hooks/useTableSort';
+import type { SortAccessors, SortOption } from '../../hooks/useTableSort';
 
 import type { Employee } from '../../types';
-import { formatDate, getInitials } from '../../lib/utils';
+import { getInitials } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
 import { hasPermission } from '../../lib/rbac';
 import api from '../../lib/api';
@@ -28,6 +32,8 @@ export function EmployeesPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [filterDept, setFilterDept] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
   const canEdit = user && hasPermission(user.role, 'edit:employees');
 
   React.useEffect(() => {
@@ -58,15 +64,62 @@ export function EmployeesPage() {
     fetchEmployees();
   }, []);
 
-  const filtered = employees.filter((e) =>
-    [e.fullName, e.email, e.jobPosition.title, e.department.name]
-      .join(' ').toLowerCase().includes(search.toLowerCase())
-  );
+  // Department options come from the loaded rows rather than a second API call —
+  // a department with nobody in it cannot narrow this list anyway.
+  const deptOptions = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    employees.forEach((e) => {
+      if (e.department?.name) seen.set(e.department.name, e.department.name);
+    });
+    return [...seen.keys()].sort((a, b) => a.localeCompare(b)).map((name) => ({ value: name, label: name }));
+  }, [employees]);
+
+  const statusOptions = React.useMemo(() => {
+    const present = new Set<string>(employees.map((e) => e.status));
+    return Object.keys(statusLabel)
+      .filter((s) => present.has(s))
+      .map((s) => ({ value: s, label: statusLabel[s] }));
+  }, [employees]);
+
+  const matched = employees.filter((e) => {
+    const haystack = [e.fullName, e.email, e.jobPosition.title, e.department.name, e.employeeNumber]
+      .join(' ').toLowerCase();
+    if (search && !haystack.includes(search.toLowerCase())) return false;
+    if (filterDept !== 'all' && e.department?.name !== filterDept) return false;
+    if (filterStatus !== 'all' && e.status !== filterStatus) return false;
+    return true;
+  });
+
+  const sortAccessors: SortAccessors<Employee> = {
+    name:       (e) => e.fullName,
+    number:     (e) => e.employeeNumber,
+    email:      (e) => e.email,
+    position:   (e) => e.jobPosition?.title,
+    department: (e) => e.department?.name,
+    status:     (e) => statusLabel[e.status] ?? e.status,
+    // Compared as an epoch so string formats can't reorder the rows.
+    hireDate:   (e) => (e.hireDate ? new Date(e.hireDate).getTime() : null),
+  };
+
+  const sortOptions: SortOption[] = [
+    { key: 'name',       label: 'Name' },
+    { key: 'number',     label: 'Employee number' },
+    { key: 'department', label: 'Department' },
+    { key: 'position',   label: 'Job position' },
+    { key: 'status',     label: 'Status' },
+    { key: 'hireDate',   label: 'Hire date' },
+  ];
+
+  const { sorted: filtered, sort, setSort, toggleSort } =
+    useTableSort(matched, sortAccessors, { key: 'name', dir: 'asc' });
+
+  const filtersActive = Boolean(search) || filterDept !== 'all' || filterStatus !== 'all';
+  const resetFilters = () => { setSearch(''); setFilterDept('all'); setFilterStatus('all'); };
 
   // List view columns — NO department column per spec
   const columns: Column<Employee>[] = [
     {
-      key: 'fullName', header: 'Employee',
+      key: 'fullName', header: 'Employee', sortKey: 'name',
       render: (_, e) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-primary-100 text-primary-700 text-xs font-bold">
@@ -83,21 +136,21 @@ export function EmployeesPage() {
       ),
     },
     {
-      key: 'email', header: 'Work Email',
+      key: 'email', header: 'Work Email', sortKey: 'email',
       render: (_, e) => (
         <span className="text-sm text-slate-600">{e.email}</span>
       ),
     },
     {
-      key: 'jobPosition', header: 'Job Position',
+      key: 'jobPosition', header: 'Job Position', sortKey: 'position',
       render: (_, e) => <span className="text-sm text-slate-700">{e.jobPosition.title}</span>,
     },
     {
-      key: 'department', header: 'Department',
+      key: 'department', header: 'Department', sortKey: 'department',
       render: (_, e) => <span className="text-sm text-slate-600">{e.department.name}</span>,
     },
     {
-      key: 'status', header: 'Status',
+      key: 'status', header: 'Status', sortKey: 'status',
       render: (_, e) => (
         <Badge variant={statusVariant[e.status]} dot pulsing={e.status === 'active'}>
           {statusLabel[e.status]}
@@ -118,29 +171,58 @@ export function EmployeesPage() {
         <div>
           <h1 className="page-title">Employees</h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            {filtered.length} employee{filtered.length !== 1 ? 's' : ''}
+            {isLoading
+              ? 'Loading…'
+              : filtersActive
+                // Both numbers, so a narrow filter never hides the headcount.
+                ? `Showing ${filtered.length} of ${employees.length} employees`
+                : `${employees.length} employee${employees.length !== 1 ? 's' : ''} in total`}
           </p>
         </div>
-        {canEdit && (
-          <button id="new-employee-btn" onClick={() => navigate('/employees/new')} className="btn-primary">
-            <Plus size={14} /> New
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {/* Total headcount, independent of whatever filter is applied */}
+          {!isLoading && (
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-md bg-primary-50 border border-primary-100">
+              <Users size={14} className="text-primary-600 shrink-0" />
+              <div className="leading-tight">
+                <p className="text-[10px] font-semibold text-primary-700/70 uppercase tracking-wider">Total</p>
+                <p id="employee-total-count" className="text-sm font-bold text-primary-700">{employees.length}</p>
+              </div>
+            </div>
+          )}
+          {canEdit && (
+            <button id="new-employee-btn" onClick={() => navigate('/employees/new')} className="btn-primary">
+              <Plus size={14} /> New
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-xs">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            id="employee-search"
-            type="text"
-            placeholder="Search employees…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="input-field pl-8 text-sm"
-          />
-        </div>
+      <TableToolbar>
+        <SearchInput
+          id="employee-search"
+          value={search}
+          onChange={setSearch}
+          placeholder="Search employees…"
+        />
+        <FilterSelect
+          id="employee-dept-filter"
+          value={filterDept}
+          onChange={setFilterDept}
+          options={deptOptions}
+          allLabel="All Departments"
+        />
+        <FilterSelect
+          id="employee-status-filter"
+          value={filterStatus}
+          onChange={setFilterStatus}
+          options={statusOptions}
+          allLabel="All Statuses"
+        />
+        <SortMenu id="employee-sort-btn" options={sortOptions} sort={sort} onChange={setSort} />
+        <ResetFiltersButton show={filtersActive} onReset={resetFilters} />
+        <div className="flex-1" />
         {/* View toggle */}
         <div className="flex items-center border border-slate-300 rounded-md overflow-hidden">
           <button
@@ -163,7 +245,7 @@ export function EmployeesPage() {
             <List size={13} /> List
           </button>
         </div>
-      </div>
+      </TableToolbar>
 
       {/* Kanban View */}
       {view === 'kanban' && (
@@ -173,8 +255,15 @@ export function EmployeesPage() {
               <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
             </div>
           ) : filtered.length === 0 ? (
-            <div className="col-span-full py-12 text-center text-slate-400 text-sm">
-              No employees match your search.
+            <div className="col-span-full py-12 text-center text-sm">
+              <p className="text-slate-400">
+                {filtersActive ? 'No employees match your filters.' : 'No employees yet.'}
+              </p>
+              {filtersActive && (
+                <button onClick={resetFilters} className="text-xs text-primary-600 hover:underline mt-2">
+                  Clear filters
+                </button>
+              )}
             </div>
           ) : (
             filtered.map((emp) => (
@@ -231,6 +320,13 @@ export function EmployeesPage() {
               data={filtered}
               rowKey={(e) => e.id}
               onRowClick={(e) => navigate(`/employees/${e.id}`)}
+              sort={sort}
+              onSortChange={toggleSort}
+              emptyState={
+                <p className="text-slate-400 text-sm">
+                  {filtersActive ? 'No employees match your filters.' : 'No employees yet.'}
+                </p>
+              }
             />
           )}
         </div>

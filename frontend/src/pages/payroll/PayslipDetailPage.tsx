@@ -24,6 +24,7 @@ export function PayslipDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [payslip, setPayslip] = React.useState<any>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
   const [isSending, setIsSending] = React.useState(false);
   const [sendFeedback, setSendFeedback] = React.useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -76,8 +77,6 @@ export function PayslipDetailPage() {
   const statusKey = (payslip.status ?? '').toLowerCase();
 
   // Derived totals
-  const totalEarnings  = (grouped.basic ?? []).concat(grouped.allowance ?? [])
-    .reduce((s: number, l: PayslipLine) => s + Number(l.amount), 0);
   const totalDeductions = (grouped.deduction ?? [])
     .reduce((s: number, l: PayslipLine) => s + Math.abs(Number(l.amount)), 0);
 
