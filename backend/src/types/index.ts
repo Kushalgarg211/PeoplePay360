@@ -23,7 +23,8 @@ export type UserRole =
   | 'HR_MANAGER'
   | 'HR_PAYROLL_USER'
   | 'HR_PAYROLL_MANAGER'
-  | 'EMPLOYEE';
+  | 'EMPLOYEE'
+  | 'MANAGER';
 
 // Salary calculation dict
 export type SalaryDict = Record<string, number>;

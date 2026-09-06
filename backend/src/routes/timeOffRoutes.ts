@@ -5,7 +5,7 @@ import {
   listRequests, createRequest, approveRequest, refuseRequest,
 } from '../controllers/timeOffController';
 import { authenticateToken } from '../middlewares/authMiddleware';
-import { isAuthenticated, isHROrAbove } from '../middlewares/rbacGuard';
+import { isAuthenticated, isHROrAbove, isManagerOrHR } from '../middlewares/rbacGuard';
 
 const router = Router();
 router.use(authenticateToken);
@@ -23,7 +23,7 @@ router.post('/allocations/:id/refuse',  isHROrAbove,      refuseAllocation);
 // Requests
 router.get('/requests',                 isAuthenticated,  listRequests);
 router.post('/requests',                isAuthenticated,  createRequest);
-router.post('/requests/:id/approve',    isHROrAbove,      approveRequest);
-router.post('/requests/:id/refuse',     isHROrAbove,      refuseRequest);
+router.post('/requests/:id/approve',    isManagerOrHR,    approveRequest);
+router.post('/requests/:id/refuse',     isManagerOrHR,    refuseRequest);
 
 export default router;

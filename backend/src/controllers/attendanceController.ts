@@ -129,12 +129,32 @@ export const getTodayAttendanceForAdmin = async (req: AuthRequest, res: Response
 export const listAttendance = async (req: AuthRequest, res: Response, next: NextFunction) => {  try {
     const { employeeId, departmentId, from, to } = req.query as Record<string, string>;
 
-    // EMPLOYEE role scoped to own records
-    const scopedEmpId = req.user!.role === 'EMPLOYEE' ? req.user!.employeeId! : employeeId;
+    // Scope by role:
+    // EMPLOYEE → own records only
+    // MANAGER  → their direct reports only
+    // HR/ADMIN → all (with optional filters)
+    let scopedEmpId = employeeId;
+    let managerFilter: string[] | undefined;
+
+    if (req.user!.role === 'EMPLOYEE') {
+      scopedEmpId = req.user!.employeeId!;
+    } else if (req.user!.role === 'MANAGER' && req.user!.employeeId) {
+      // Get IDs of direct reports
+      const reports = await prisma.employee.findMany({
+        where: { managerId: req.user!.employeeId },
+        select: { id: true },
+      });
+      managerFilter = reports.map(r => r.id);
+      // If a specific employee was requested, verify they are a direct report
+      if (employeeId && !managerFilter.includes(employeeId)) {
+        return res.json({ success: true, data: [] });
+      }
+      scopedEmpId = employeeId; // use the requested filter or undefined
+    }
 
     const records = await prisma.attendance.findMany({
       where: {
-        ...(scopedEmpId ? { employeeId: scopedEmpId } : {}),
+        ...(scopedEmpId ? { employeeId: scopedEmpId } : managerFilter ? { employeeId: { in: managerFilter } } : {}),
         ...(from || to ? {
           date: {
             ...(from ? { gte: new Date(from) } : {}),
@@ -143,7 +163,17 @@ export const listAttendance = async (req: AuthRequest, res: Response, next: Next
         } : {}),
         ...(departmentId ? { employee: { departmentId } } : {}),
       },
-      include: { employee: { select: { id: true, firstName: true, lastName: true } } },
+      include: {
+        employee: {
+          select: {
+            id:         true,
+            firstName:  true,
+            lastName:   true,
+            department: { select: { name: true } },
+            manager:    { select: { firstName: true, lastName: true } },
+          },
+        },
+      },
       orderBy: { date: 'desc' },
     });
     res.json({ success: true, data: records });
@@ -226,13 +256,64 @@ export const createAttendance = async (req: AuthRequest, res: Response, next: Ne
 // PUT /api/v1/attendance/:id  (HR / Admin manual correction)
 export const updateAttendance = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { id }    = req.params;
-    const { notes } = req.body as { notes?: string };
-    if (!notes) throw createError('Audit notes are required for manual correction', 400);
+    const { id } = req.params;
+    const { checkIn: checkInStr, checkOut: checkOutStr, status, notes } = req.body as {
+      checkIn?:  string;
+      checkOut?: string;
+      status?:   string;
+      notes?:    string;
+    };
+
+    // Fetch the existing record so we know the date context for time parsing
+    const existing = await prisma.attendance.findUnique({ where: { id } });
+    if (!existing) throw createError('Attendance record not found', 404);
+
+    // Reconstruct DateTime from existing record's date + new HH:MM wall-clock time
+    const existingDate = existing.date; // stored as UTC-midnight Date for that calendar day
+    // Extract local Y/M/D from the stored date value
+    const dy = existingDate.getUTCFullYear();
+    const dm = existingDate.getUTCMonth() + 1;
+    const dd = existingDate.getUTCDate();
+
+    const atLocalTime = (hhmm: string) => {
+      const [h, m] = hhmm.split(':').map(Number);
+      return new Date(dy, dm - 1, dd, h || 0, m || 0, 0, 0);
+    };
+
+    const newCheckIn  = checkInStr  ? atLocalTime(checkInStr)  : existing.checkIn;
+    const newCheckOut = checkOutStr ? atLocalTime(checkOutStr) : existing.checkOut ?? undefined;
+
+    // Recalculate workedHours and overtimeHours from the updated times
+    let workedHours   = Number(existing.workedHours);
+    let overtimeHours = Number(existing.overtimeHours);
+
+    if (newCheckIn && newCheckOut) {
+      const rawHours = Math.max(0, (newCheckOut.getTime() - newCheckIn.getTime()) / 3_600_000);
+      // Fetch employee's schedule to get break/scheduled hours
+      const contract = await prisma.contract.findFirst({
+        where: { employeeId: existing.employeeId, status: 'Running' },
+        include: { workingSchedule: { include: { days: true } } },
+      });
+      const dayName = newCheckIn.toLocaleDateString('en-US', { weekday: 'long' });
+      const scheduleDay = contract?.workingSchedule?.days.find(d => d.dayOfWeek === dayName);
+      const breakHours     = scheduleDay ? Number(scheduleDay.breakHours) : 1;
+      const scheduledHours = scheduleDay ? Number(scheduleDay.totalHours)  : 8;
+
+      workedHours   = Math.round(Math.max(0, rawHours - breakHours) * 100) / 100;
+      overtimeHours = Math.round((workedHours > scheduledHours ? workedHours - scheduledHours : 0) * 100) / 100;
+    }
 
     const updated = await prisma.attendance.update({
       where: { id },
-      data:  { ...req.body, isManualCorrection: true },
+      data: {
+        checkIn:            newCheckIn,
+        checkOut:           newCheckOut ?? null,
+        workedHours,
+        overtimeHours,
+        ...(status ? { status: status as any } : {}),
+        notes:              notes ?? existing.notes ?? 'Manually corrected by an authorized user.',
+        isManualCorrection: true,
+      },
     });
 
     // A correction can raise or lower overtimeHours. Re-syncing revises the
