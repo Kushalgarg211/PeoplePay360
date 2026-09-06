@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Plus, ArrowLeft, Edit3, Save, X } from 'lucide-react';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
+import {
+  TableToolbar, SearchInput, FilterSelect, SortMenu, ResetFiltersButton, ResultCount,
+} from '../../components/ui/TableToolbar';
+import { useTableSort } from '../../hooks/useTableSort';
+import type { SortAccessors, SortOption } from '../../hooks/useTableSort';
 import api from '../../lib/api';
 import type { Contract, ContractStatus } from '../../types';
 import { formatDate, formatCurrency } from '../../lib/utils';
@@ -33,8 +38,10 @@ const emptyForm = {
 
 export function ContractsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const filterEmployeeId = searchParams.get('employeeId');
+  const fromEmployee     = searchParams.get('from') === 'employee';
   const canEdit = user && hasPermission(user.role, 'edit:contracts');
 
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -47,6 +54,8 @@ export function ContractsPage() {
   const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
   const [editing, setEditing] = useState(false);
   const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStructure, setFilterStructure] = useState('all');
   const [form, setForm] = useState(emptyForm);
 
   React.useEffect(() => {
@@ -94,12 +103,63 @@ export function ContractsPage() {
     }
   };
 
-  const filtered = contracts
-    .filter((c) => !search || (c.employee && c.employee.fullName.toLowerCase().includes(search.toLowerCase())) || (c.reference && c.reference.toLowerCase().includes(search.toLowerCase())));
+  const statusOptions = React.useMemo(() => {
+    const present = [...new Set(contracts.map((c) => (c.status || '').toLowerCase()).filter(Boolean))];
+    return present.sort().map((s) => ({ value: s, label: statusConfig[s]?.label ?? s }));
+  }, [contracts]);
+
+  // Only structures actually attached to a contract — the full structure list
+  // would offer choices that can only ever return nothing.
+  const structureOptions = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    contracts.forEach((c) => {
+      if (c.salaryStructure?.id) seen.set(c.salaryStructure.id, c.salaryStructure.name);
+    });
+    return [...seen.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [contracts]);
+
+  const matched = contracts.filter((c) => {
+    if (search && ![c.employee?.fullName ?? '', c.reference ?? '', c.employee?.employeeNumber ?? '']
+      .join(' ').toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterStatus !== 'all' && (c.status || '').toLowerCase() !== filterStatus) return false;
+    if (filterStructure !== 'all' && c.salaryStructure?.id !== filterStructure) return false;
+    return true;
+  });
+
+  const sortAccessors: SortAccessors<Contract> = {
+    reference: (c) => c.reference,
+    employee:  (c) => c.employee?.fullName,
+    // Epochs so a string format can't reorder the rows; open-ended contracts
+    // have no end date and sink to the bottom either way.
+    startDate: (c) => (c.startDate ? new Date(c.startDate).getTime() : null),
+    endDate:   (c) => (c.endDate ? new Date(c.endDate).getTime() : null),
+    wage:      (c) => Number(c.wage ?? 0),
+    status:    (c) => (c.status || '').toLowerCase(),
+    structure: (c) => c.salaryStructure?.name,
+  };
+
+  const sortOptions: SortOption[] = [
+    { key: 'startDate', label: 'Start date' },
+    { key: 'endDate',   label: 'End date' },
+    { key: 'employee',  label: 'Employee' },
+    { key: 'reference', label: 'Contract reference' },
+    { key: 'wage',      label: 'Wage / month' },
+    { key: 'status',    label: 'Status' },
+    { key: 'structure', label: 'Salary structure' },
+  ];
+
+  // Most recently started first — the current contract is the one you want.
+  const { sorted: filtered, sort, setSort, toggleSort } =
+    useTableSort(matched, sortAccessors, { key: 'startDate', dir: 'desc' });
+
+  const filtersActive = Boolean(search) || filterStatus !== 'all' || filterStructure !== 'all';
+  const resetFilters = () => { setSearch(''); setFilterStatus('all'); setFilterStructure('all'); };
 
   const columns: Column<Contract>[] = [
     {
-      key: 'reference', header: 'Contract',
+      key: 'reference', header: 'Contract', sortKey: 'reference',
       render: (_, c) => (
         <span className="font-mono text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
           {c.reference}
@@ -107,7 +167,7 @@ export function ContractsPage() {
       ),
     },
     {
-      key: 'employee', header: 'Employee',
+      key: 'employee', header: 'Employee', sortKey: 'employee',
       render: (_, c) => (
         <div>
           <p className="font-medium text-slate-800 text-sm">{c.employee.fullName}</p>
@@ -115,14 +175,14 @@ export function ContractsPage() {
         </div>
       ),
     },
-    { key: 'startDate', header: 'Start',    render: (_, c) => <span className="text-sm">{formatDate(c.startDate)}</span> },
-    { key: 'endDate',   header: 'End',      render: (_, c) => <span className="text-sm">{c.endDate ? formatDate(c.endDate) : '—'}</span> },
+    { key: 'startDate', header: 'Start',    sortKey: 'startDate', render: (_, c) => <span className="text-sm">{formatDate(c.startDate)}</span> },
+    { key: 'endDate',   header: 'End',      sortKey: 'endDate',   render: (_, c) => <span className="text-sm">{c.endDate ? formatDate(c.endDate) : '—'}</span> },
     {
-      key: 'wage', header: 'Wage / Month',
+      key: 'wage', header: 'Wage / Month', sortKey: 'wage',
       render: (_, c) => <span className="font-semibold text-sm">{formatCurrency(c.wage)}</span>,
     },
     {
-      key: 'status', header: 'Status',
+      key: 'status', header: 'Status', sortKey: 'status',
       render: (_, c) => {
         const safeStatus = (c.status || '').toLowerCase();
         const cfg = statusConfig[safeStatus] || { variant: 'default', label: c.status || 'Unknown' };
@@ -430,14 +490,34 @@ export function ContractsPage() {
   }
 
   // ── List view ──────────────────────────────────────────────────────────────
+  // Resolved employee name for back button (from the loaded contracts list)
+  const fromEmployeeName = fromEmployee && filterEmployeeId
+    ? contracts.find((c) => c.employeeId === filterEmployeeId || c.employee?.id === filterEmployeeId)?.employee?.fullName
+    : null;
+
   return (
     <div className="space-y-4 animate-fade-in">
+      {/* Back-to-employee breadcrumb — only visible when navigated from an employee profile */}
+      {fromEmployee && filterEmployeeId && (
+        <button
+          onClick={() => navigate(`/employees/${filterEmployeeId}`)}
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-primary-600 transition-colors group -mb-1"
+        >
+          <ArrowLeft size={13} className="group-hover:-translate-x-0.5 transition-transform" />
+          <span>Back to {fromEmployeeName ?? 'Employee'}</span>
+        </button>
+      )}
       <div className="page-header">
         <div>
           <h1 className="page-title">Contracts</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {filtered.length} contract{filtered.length !== 1 ? 's' : ''}{filterEmployeeId ? ' (filtered by employee)' : ''}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <ResultCount shown={filtered.length} total={contracts.length} noun="contract" />
+            {/* The employee scope comes from the URL, so it isn't one of the
+                toolbar filters and needs saying separately. */}
+            {filterEmployeeId && (
+              <span className="text-xs text-slate-400 mt-0.5">(filtered by employee)</span>
+            )}
+          </div>
         </div>
         {canEdit && (
           <button id="new-contract-btn" className="btn-primary" onClick={openNew}>
@@ -446,17 +526,30 @@ export function ContractsPage() {
         )}
       </div>
 
-      <div className="flex items-center gap-2">
-        <div className="relative max-w-xs flex-1">
-          <input
-            type="text"
-            placeholder="Search contracts…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="input-field text-sm"
-          />
-        </div>
-      </div>
+      <TableToolbar>
+        <SearchInput
+          id="contract-search"
+          value={search}
+          onChange={setSearch}
+          placeholder="Search contracts…"
+        />
+        <FilterSelect
+          id="contract-status-filter"
+          value={filterStatus}
+          onChange={setFilterStatus}
+          options={statusOptions}
+          allLabel="All Statuses"
+        />
+        <FilterSelect
+          id="contract-structure-filter"
+          value={filterStructure}
+          onChange={setFilterStructure}
+          options={structureOptions}
+          allLabel="All Structures"
+        />
+        <SortMenu id="contract-sort-btn" options={sortOptions} sort={sort} onChange={setSort} />
+        <ResetFiltersButton show={filtersActive} onReset={resetFilters} />
+      </TableToolbar>
 
       {isLoading ? (
         <div className="py-12 flex justify-center">
@@ -468,6 +561,13 @@ export function ContractsPage() {
           data={filtered}
           rowKey={(c) => c.id}
           onRowClick={(c) => { setSelectedContract({ ...c }); setView('detail'); setEditing(false); }}
+          sort={sort}
+          onSortChange={toggleSort}
+          emptyState={
+            <p className="text-slate-400 text-sm">
+              {filtersActive ? 'No contracts match your filters.' : 'No contracts yet.'}
+            </p>
+          }
         />
       )}
     </div>

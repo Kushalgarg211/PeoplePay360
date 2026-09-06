@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams, useNavigate } from 'react-router-dom';
 import { Plus, ArrowLeft, Edit3, Save, X } from 'lucide-react';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
+import {
+  TableToolbar, SearchInput, FilterSelect, SortMenu, ResetFiltersButton, ResultCount,
+} from '../../components/ui/TableToolbar';
+import { useTableSort } from '../../hooks/useTableSort';
+import type { SortAccessors, SortOption } from '../../hooks/useTableSort';
 import api from '../../lib/api';
 import type { LeaveRequest, LeaveAllocation, LeaveType, LeaveStatus } from '../../types';
 import { formatDate, getInitials } from '../../lib/utils';
@@ -67,7 +72,7 @@ function RequestDetail({
             <h1 className="page-title mt-0.5">Time Off Request / {request.employee.fullName}</h1>
           </div>
         </div>
-        {canEdit && request.status === 'pending' && (
+        {canEdit && ['pending', 'to_approve', 'to approve', 'draft'].includes((request.status || '').toLowerCase()) && (
           <div className="flex gap-2">
             <button className="btn-success" onClick={() => setStatus('approved')}>Approve</button>
             <button className="btn-danger" onClick={() => setStatus('refused')}>Refuse</button>
@@ -126,7 +131,7 @@ function AllocationDetail({
             <h1 className="page-title mt-0.5">Allocation / {allocation.employee.fullName}</h1>
           </div>
         </div>
-        {canEdit && allocation.status !== 'approved' && (
+        {canEdit && !['approved', 'refused'].includes((allocation.status || '').toLowerCase()) && (
           <div className="flex gap-2">
             <button className="btn-success" onClick={() => onUpdate({ ...allocation, status: 'approved', approvedBy: 'Sara Khan' })}>Approve</button>
             <button className="btn-danger" onClick={() => onUpdate({ ...allocation, status: 'refused' })}>Refuse</button>
@@ -216,8 +221,10 @@ function TypeDetail({
 
 export function TimeOffPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const filterEmployeeId = searchParams.get('employeeId');
+  const fromEmployee     = searchParams.get('from') === 'employee';
   const canEdit = user && hasPermission(user.role, 'edit:timeoff');
   const subTab = useSubTab();
 
@@ -250,6 +257,15 @@ export function TimeOffPage() {
     validityYear:  String(new Date().getFullYear()),
   });
   const [search, setSearch] = useState('');
+  // Each sub-tab holds its own filter state — switching tabs shouldn't carry a
+  // status filter that means something different over there.
+  const [reqFilterStatus, setReqFilterStatus] = useState('all');
+  const [reqFilterType, setReqFilterType] = useState('all');
+  const [allocSearch, setAllocSearch] = useState('');
+  const [allocFilterStatus, setAllocFilterStatus] = useState('all');
+  const [allocFilterType, setAllocFilterType] = useState('all');
+  const [typeSearch, setTypeSearch] = useState('');
+  const [typeFilterActive, setTypeFilterActive] = useState('all');
 
   React.useEffect(() => {
     fetchData();
@@ -283,6 +299,7 @@ export function TimeOffPage() {
         endDate:   r.endDate,
         days:      Number(r.durationDays ?? 1),
         status:    (r.status ?? 'draft').toLowerCase().replace(' ', '_'),
+        approvedBy: r.approverName ?? '—',
       }));
 
       // Normalise backend shape → frontend LeaveAllocation shape
@@ -323,9 +340,144 @@ export function TimeOffPage() {
     }
   };
 
-  const filteredRequests = requests
+  // ── Requests tab ────────────────────────────────────────────────────────────
+  const reqStatusOptions = React.useMemo(() => {
+    const present = [...new Set(requests.map((r) => (r.status || '').toLowerCase()).filter(Boolean))];
+    return present.sort().map((s) => ({
+      value: s,
+      label: s === 'pending' ? 'To Approve' : s.charAt(0).toUpperCase() + s.slice(1),
+    }));
+  }, [requests]);
+
+  const reqTypeOptions = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    requests.forEach((r) => {
+      if (r.leaveType?.id) seen.set(r.leaveType.id, r.leaveType.name);
+    });
+    return [...seen.entries()].map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [requests]);
+
+  const matchedRequests = requests
+    // Employee scope comes from the URL, not the toolbar.
     .filter((r) => !filterEmployeeId || r.employeeId === filterEmployeeId)
-    .filter((r) => !search || r.employee.fullName.toLowerCase().includes(search.toLowerCase()));
+    .filter((r) => {
+      if (search && ![r.employee?.fullName ?? '', r.leaveType?.name ?? '', r.reason ?? '']
+        .join(' ').toLowerCase().includes(search.toLowerCase())) return false;
+      if (reqFilterStatus !== 'all' && (r.status || '').toLowerCase() !== reqFilterStatus) return false;
+      if (reqFilterType !== 'all' && r.leaveType?.id !== reqFilterType) return false;
+      return true;
+    });
+
+  const requestSortAccessors: SortAccessors<LeaveRequest> = {
+    employee:  (r) => r.employee?.fullName,
+    leaveType: (r) => r.leaveType?.name,
+    startDate: (r) => (r.startDate ? new Date(r.startDate).getTime() : null),
+    endDate:   (r) => (r.endDate ? new Date(r.endDate).getTime() : null),
+    days:      (r) => Number(r.days ?? 0),
+    status:    (r) => (r.status || '').toLowerCase(),
+  };
+
+  const requestSortOptions: SortOption[] = [
+    { key: 'startDate', label: 'Start date' },
+    { key: 'endDate',   label: 'End date' },
+    { key: 'employee',  label: 'Employee' },
+    { key: 'leaveType', label: 'Time off type' },
+    { key: 'days',      label: 'Duration' },
+    { key: 'status',    label: 'Status' },
+  ];
+
+  // Most recent request first — pending approvals are usually the newest.
+  const {
+    sorted: filteredRequests, sort: reqSort, setSort: setReqSort, toggleSort: toggleReqSort,
+  } = useTableSort(matchedRequests, requestSortAccessors, { key: 'startDate', dir: 'desc' });
+
+  const reqFiltersActive = Boolean(search) || reqFilterStatus !== 'all' || reqFilterType !== 'all';
+  const resetReqFilters = () => { setSearch(''); setReqFilterStatus('all'); setReqFilterType('all'); };
+
+  // ── Allocations tab ─────────────────────────────────────────────────────────
+  const allocStatusOptions = React.useMemo(() => {
+    const present = [...new Set(allocations.map((a) => (a.status || '').toLowerCase()).filter(Boolean))];
+    return present.sort().map((s) => ({
+      value: s,
+      label: s === 'draft' ? 'To Approve' : s.charAt(0).toUpperCase() + s.slice(1),
+    }));
+  }, [allocations]);
+
+  const allocTypeOptions = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    allocations.forEach((a) => {
+      if (a.leaveType?.id) seen.set(a.leaveType.id, a.leaveType.name);
+    });
+    return [...seen.entries()].map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [allocations]);
+
+  const matchedAllocations = allocations
+    .filter((a) => !filterEmployeeId || a.employeeId === filterEmployeeId)
+    .filter((a) => {
+      if (allocSearch && ![a.employee?.fullName ?? '', a.leaveType?.name ?? '']
+        .join(' ').toLowerCase().includes(allocSearch.toLowerCase())) return false;
+      if (allocFilterStatus !== 'all' && (a.status || '').toLowerCase() !== allocFilterStatus) return false;
+      if (allocFilterType !== 'all' && a.leaveType?.id !== allocFilterType) return false;
+      return true;
+    });
+
+  const allocationSortAccessors: SortAccessors<LeaveAllocation> = {
+    employee:  (a) => a.employee?.fullName,
+    leaveType: (a) => a.leaveType?.name,
+    allocated: (a) => Number(a.allocated ?? 0),
+    taken:     (a) => Number(a.taken ?? 0),
+    remaining: (a) => Number(a.remaining ?? 0),
+    status:    (a) => (a.status || '').toLowerCase(),
+  };
+
+  const allocationSortOptions: SortOption[] = [
+    { key: 'employee',  label: 'Employee' },
+    { key: 'leaveType', label: 'Time off type' },
+    { key: 'allocated', label: 'Allocated' },
+    { key: 'taken',     label: 'Taken' },
+    { key: 'remaining', label: 'Remaining' },
+    { key: 'status',    label: 'Status' },
+  ];
+
+  const {
+    sorted: filteredAllocations, sort: allocSort, setSort: setAllocSort, toggleSort: toggleAllocSort,
+  } = useTableSort(matchedAllocations, allocationSortAccessors, { key: 'employee', dir: 'asc' });
+
+  const allocFiltersActive = Boolean(allocSearch) || allocFilterStatus !== 'all' || allocFilterType !== 'all';
+  const resetAllocFilters = () => { setAllocSearch(''); setAllocFilterStatus('all'); setAllocFilterType('all'); };
+
+  // ── Types tab ───────────────────────────────────────────────────────────────
+  const matchedTypes = types.filter((t) => {
+    if (typeSearch && !t.name.toLowerCase().includes(typeSearch.toLowerCase())) return false;
+    if (typeFilterActive === 'active'   && !t.active) return false;
+    if (typeFilterActive === 'inactive' &&  t.active) return false;
+    return true;
+  });
+
+  const typeSortAccessors: SortAccessors<LeaveType> = {
+    name:       (t) => t.name,
+    unit:       (t) => t.unit,
+    allocation: (t) => (t.requiresAllocation ? 'Required' : 'No'),
+    approval:   (t) => t.approvalBy ?? '',
+    active:     (t) => (t.active ? 'Active' : 'Inactive'),
+  };
+
+  const typeSortOptions: SortOption[] = [
+    { key: 'name',       label: 'Type name' },
+    { key: 'unit',       label: 'Unit' },
+    { key: 'allocation', label: 'Allocation' },
+    { key: 'approval',   label: 'Approval' },
+    { key: 'active',     label: 'Status' },
+  ];
+
+  const {
+    sorted: filteredTypes, sort: typeSort, setSort: setTypeSort, toggleSort: toggleTypeSort,
+  } = useTableSort(matchedTypes, typeSortAccessors, { key: 'name', dir: 'asc' });
+
+  const typeFiltersActive = Boolean(typeSearch) || typeFilterActive !== 'all';
+  const resetTypeFilters = () => { setTypeSearch(''); setTypeFilterActive('all'); };
 
   const daysBetween = (start: string, end: string) => {
     if (!start || !end) return 1;
@@ -445,7 +597,7 @@ export function TimeOffPage() {
 
   const requestColumns: Column<LeaveRequest>[] = [
     ...(!isEmployee ? [{
-      key: 'employee' as keyof LeaveRequest, header: 'Employee',
+      key: 'employee' as keyof LeaveRequest, header: 'Employee', sortKey: 'employee',
       render: (_: any, r: LeaveRequest) => (
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center bg-slate-200 text-slate-600 text-xs font-bold shrink-0">
@@ -459,7 +611,7 @@ export function TimeOffPage() {
       ),
     }] : []),
     {
-      key: 'leaveType', header: 'Type',
+      key: 'leaveType', header: 'Type', sortKey: 'leaveType',
       render: (_, r) => (
         <span className="flex items-center gap-1.5 text-sm">
           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: r.leaveType?.color ?? '#6366f1' }} />
@@ -467,11 +619,11 @@ export function TimeOffPage() {
         </span>
       ),
     },
-    { key: 'startDate', header: 'Start', render: (_, r) => <span className="text-sm">{formatDate(r.startDate)}</span> },
-    { key: 'endDate',   header: 'End',   render: (_, r) => <span className="text-sm">{formatDate(r.endDate)}</span> },
-    { key: 'days',      header: 'Duration', render: (_, r) => <span className="font-semibold text-sm">{r.days} Days</span> },
+    { key: 'startDate', header: 'Start', sortKey: 'startDate', render: (_, r) => <span className="text-sm">{formatDate(r.startDate)}</span> },
+    { key: 'endDate',   header: 'End',   sortKey: 'endDate',   render: (_, r) => <span className="text-sm">{formatDate(r.endDate)}</span> },
+    { key: 'days',      header: 'Duration', sortKey: 'days', render: (_, r) => <span className="font-semibold text-sm">{r.days} Days</span> },
     {
-      key: 'status', header: 'Status',
+      key: 'status', header: 'Status', sortKey: 'status',
       render: (_, r) => (
         <Badge variant={statusVariant[r.status]} dot>
           {r.status === 'pending' ? 'To Approve' : r.status.charAt(0).toUpperCase() + r.status.slice(1)}
@@ -480,35 +632,38 @@ export function TimeOffPage() {
     },
     {
       key: 'id', header: 'Actions',
-      render: (_, r) => canEdit && r.status === 'pending' ? (
-        <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
-          <button
-            className="btn-success text-xs py-1 px-2"
-            onClick={async () => {
-              await api.post(`/time-off/requests/${r.id}/approve`);
-              fetchData();
-            }}
-          >
-            Approve
-          </button>
-          <button
-            className="btn-secondary text-xs py-1 px-2"
-            onClick={async () => {
-              await api.post(`/time-off/requests/${r.id}/refuse`);
-              fetchData();
-            }}
-          >
-            Refuse
-          </button>
-        </div>
-      ) : null,
+      render: (_, r) => {
+        const isPending = ['pending', 'to_approve', 'to approve', 'draft'].includes((r.status || '').toLowerCase());
+        return canEdit && isPending ? (
+          <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="btn-success text-xs py-1 px-2"
+              onClick={async () => {
+                await api.post(`/time-off/requests/${r.id}/approve`);
+                fetchData();
+              }}
+            >
+              Approve
+            </button>
+            <button
+              className="btn-secondary text-xs py-1 px-2"
+              onClick={async () => {
+                await api.post(`/time-off/requests/${r.id}/refuse`);
+                fetchData();
+              }}
+            >
+              Refuse
+            </button>
+          </div>
+        ) : null;
+      },
     },
   ];
 
   const allocationColumns: Column<LeaveAllocation>[] = [
-    { key: 'employee', header: 'Employee', render: (_, a) => <span className="font-medium text-sm">{a.employee.fullName}</span> },
+    { key: 'employee', header: 'Employee', sortKey: 'employee', render: (_, a) => <span className="font-medium text-sm">{a.employee.fullName}</span> },
     {
-      key: 'leaveType', header: 'Type',
+      key: 'leaveType', header: 'Type', sortKey: 'leaveType',
       render: (_, a) => (
         <span className="flex items-center gap-1.5 text-sm">
           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: a.leaveType?.color ?? '#6366f1' }} />
@@ -516,11 +671,11 @@ export function TimeOffPage() {
         </span>
       ),
     },
-    { key: 'allocated', header: 'Allocated', render: (_, a) => <span className="text-sm">{a.allocated}</span> },
-    { key: 'taken',     header: 'Taken',     render: (_, a) => <span className="text-sm text-amber-600 font-medium">{a.taken}</span> },
-    { key: 'remaining', header: 'Remaining', render: (_, a) => <span className="text-sm text-emerald-700 font-semibold">{a.remaining}</span> },
+    { key: 'allocated', header: 'Allocated', sortKey: 'allocated', render: (_, a) => <span className="text-sm">{a.allocated}</span> },
+    { key: 'taken',     header: 'Taken',     sortKey: 'taken',     render: (_, a) => <span className="text-sm text-amber-600 font-medium">{a.taken}</span> },
+    { key: 'remaining', header: 'Remaining', sortKey: 'remaining', render: (_, a) => <span className="text-sm text-emerald-700 font-semibold">{a.remaining}</span> },
     {
-      key: 'status', header: 'Status',
+      key: 'status', header: 'Status', sortKey: 'status',
       render: (_, a) => (
         <Badge variant={a.status === 'approved' ? 'success' : a.status === 'refused' ? 'danger' : 'warning'}>
           {a.status === 'draft' ? 'To Approve' : a.status.charAt(0).toUpperCase() + a.status.slice(1)}
@@ -531,7 +686,7 @@ export function TimeOffPage() {
 
   const typeColumns: Column<LeaveType>[] = [
     {
-      key: 'name', header: 'Type',
+      key: 'name', header: 'Type', sortKey: 'name',
       render: (_, t) => (
         <span className="flex items-center gap-2 text-sm font-medium">
           <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: t.color ?? '#6366f1' }} />
@@ -539,11 +694,11 @@ export function TimeOffPage() {
         </span>
       ),
     },
-    { key: 'unit', header: 'Unit', render: (_, t) => <span className="text-sm capitalize">{t.unit}</span> },
-    { key: 'maxDays', header: 'Allocation', render: (_, t) => <span className="text-sm">{t.requiresAllocation ? 'Required' : 'No'}</span> },
-    { key: 'requiresApproval', header: 'Approval', render: (_, t) => <span className="text-sm">{t.approvalBy ?? 'None'}</span> },
+    { key: 'unit', header: 'Unit', sortKey: 'unit', render: (_, t) => <span className="text-sm capitalize">{t.unit}</span> },
+    { key: 'maxDays', header: 'Allocation', sortKey: 'allocation', render: (_, t) => <span className="text-sm">{t.requiresAllocation ? 'Required' : 'No'}</span> },
+    { key: 'requiresApproval', header: 'Approval', sortKey: 'approval', render: (_, t) => <span className="text-sm">{t.approvalBy ?? 'None'}</span> },
     {
-      key: 'active', header: 'Status',
+      key: 'active', header: 'Status', sortKey: 'active',
       render: (_, t) => <Badge variant={t.active ? 'success' : 'default'} dot>{t.active ? 'Active' : 'Inactive'}</Badge>,
     },
   ];
@@ -552,8 +707,22 @@ export function TimeOffPage() {
     ? (isEmployee ? 'My Leave Requests' : 'Time Off Requests')
     : subTab === 'allocations' ? 'Allocations' : 'Time Off Types';
 
+  const fromEmployeeName = fromEmployee && filterEmployeeId
+    ? requests.find((r) => r.employeeId === filterEmployeeId)?.employee?.fullName
+    : null;
+
   return (
     <div className="space-y-4 animate-fade-in">
+      {/* Back-to-employee breadcrumb — only visible when navigated from an employee profile */}
+      {fromEmployee && filterEmployeeId && (
+        <button
+          onClick={() => navigate(`/employees/${filterEmployeeId}`)}
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-primary-600 transition-colors group -mb-1"
+        >
+          <ArrowLeft size={13} className="group-hover:-translate-x-0.5 transition-transform" />
+          <span>Back to {fromEmployeeName ?? 'Employee'}</span>
+        </button>
+      )}
       <div className="page-header">
         <div>
           <h1 className="page-title">{pageTitle}</h1>

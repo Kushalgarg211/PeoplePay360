@@ -1,4 +1,4 @@
-﻿import { Response, NextFunction } from 'express';
+import { Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import prisma from '../config/database';
@@ -10,7 +10,8 @@ export const listUsers = async (req: AuthRequest, res: Response, next: NextFunct
   try {
     const users = await prisma.user.findMany({
       select: {
-        id: true, email: true, role: true, status: true, employeeId: true, createdAt: true,
+        id: true, email: true, role: true, status: true, employeeId: true,
+        createdAt: true, lastLoginAt: true,
         employee: { select: { firstName: true, lastName: true, jobPosition: true } },
       },
       orderBy: { createdAt: 'desc' },

@@ -30,7 +30,7 @@ export const login = async (req: AuthRequest, res: Response, next: NextFunction)
     const sid = uuidv4();
     await prisma.user.update({
       where: { id: user.id },
-      data:  { activeSessionId: sid },
+      data:  { activeSessionId: sid, lastLoginAt: new Date() },
     });
 
     const payload: JwtPayload = {

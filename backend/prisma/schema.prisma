@@ -173,6 +173,9 @@ model User {
   /// NULL means no active session (fresh account, or signed out).
   activeSessionId String? @map("active_session_id") @db.VarChar(36)
 
+  /// Timestamp of the most recent successful login. NULL until first login.
+  lastLoginAt     DateTime? @map("last_login_at")
+
   employee Employee? @relation(fields: [employeeId], references: [id])
 
   @@map("users")

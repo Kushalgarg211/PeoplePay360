@@ -28,6 +28,14 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'edit:timeoff',
     'view:payslips',
   ],
+  // Manager: can view their team's data and approve/refuse time-off
+  manager: [
+    'view:employees',
+    'view:attendance',
+    'view:timeoff',
+    'edit:timeoff',   // grants canEdit → shows Approve/Refuse buttons
+    'view:payslips',
+  ],
   hr_manager: [
     'view:employees',
     'edit:employees',
@@ -103,12 +111,14 @@ export function hasPermission(role: UserRole, permission: Permission): boolean {
 export function getRoleLabel(role: UserRole): string {
   const labels: Record<string, string> = {
     employee:           'Employee',
+    manager:            'Manager',
     hr_manager:         'HR Manager',
     hr_payroll_user:    'Payroll User',
     hr_payroll_manager: 'Payroll Manager',
     admin:              'Administrator',
     // Uppercase variants from JWT
     EMPLOYEE:           'Employee',
+    MANAGER:            'Manager',
     HR_MANAGER:         'HR Manager',
     HR_PAYROLL_USER:    'Payroll User',
     HR_PAYROLL_MANAGER: 'Payroll Manager',
@@ -121,12 +131,14 @@ export function getRoleBadgeColor(role: UserRole): string {
   // Returns Tailwind classes for a badge — border variant to match new Badge component style
   const colors: Record<string, string> = {
     employee:            'bg-slate-50  text-slate-700  border-slate-200',
+    manager:             'bg-teal-50   text-teal-700   border-teal-200',
     hr_manager:          'bg-blue-50   text-blue-700   border-blue-200',
     hr_payroll_user:     'bg-purple-50 text-purple-700 border-purple-200',
     hr_payroll_manager:  'bg-indigo-50 text-indigo-700 border-indigo-200',
     admin:               'bg-amber-50  text-amber-700  border-amber-200',
     // Uppercase variants from JWT
     EMPLOYEE:            'bg-slate-50  text-slate-700  border-slate-200',
+    MANAGER:             'bg-teal-50   text-teal-700   border-teal-200',
     HR_MANAGER:          'bg-blue-50   text-blue-700   border-blue-200',
     HR_PAYROLL_USER:     'bg-purple-50 text-purple-700 border-purple-200',
     HR_PAYROLL_MANAGER:  'bg-indigo-50 text-indigo-700 border-indigo-200',

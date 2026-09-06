@@ -1,19 +1,25 @@
 import React, { useState } from 'react';
-import { Plus, Search } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { DataTable } from '../../components/ui/DataTable';
 import type { Column } from '../../components/ui/DataTable';
 import { Badge } from '../../components/ui/Badge';
 import { Modal } from '../../components/ui/Modal';
+import {
+  TableToolbar, SearchInput, FilterSelect, SortMenu, ResetFiltersButton, ResultCount,
+} from '../../components/ui/TableToolbar';
+import { useTableSort } from '../../hooks/useTableSort';
+import type { SortAccessors, SortOption } from '../../hooks/useTableSort';
 import api from '../../lib/api';
 import type { SystemUser, UserRole } from '../../types';
 import { formatDate, getInitials } from '../../lib/utils';
 import { getRoleLabel } from '../../lib/rbac';
 
-const ROLES: UserRole[] = ['employee', 'hr_manager', 'hr_payroll_user', 'hr_payroll_manager', 'admin'];
+const ROLES: UserRole[] = ['employee', 'manager', 'hr_manager', 'hr_payroll_user', 'hr_payroll_manager', 'admin'];
 
 // Map frontend lowercase role → backend UPPER_SNAKE_CASE
 const ROLE_API: Record<UserRole, string> = {
   employee:           'EMPLOYEE',
+  manager:            'MANAGER',
   hr_manager:         'HR_MANAGER',
   hr_payroll_user:    'HR_PAYROLL_USER',
   hr_payroll_manager: 'HR_PAYROLL_MANAGER',
@@ -22,6 +28,7 @@ const ROLE_API: Record<UserRole, string> = {
 
 const roleColor: Record<string, string> = {
   employee:           'text-slate-500',
+  manager:            'text-teal-600',
   hr_manager:         'text-blue-600',
   hr_payroll_user:    'text-purple-600',
   hr_payroll_manager: 'text-indigo-600',
@@ -30,6 +37,7 @@ const roleColor: Record<string, string> = {
 
 const roleDescriptions: Record<UserRole, string> = {
   employee:           'View own profile, attendance, and leave only.',
+  manager:            'View team attendance and time off. Can approve or refuse direct reports\' leave requests.',
   hr_manager:         'Full CRUD on Employees, Attendance, Contracts, and Time Off.',
   hr_payroll_user:    'All HR Manager permissions plus Payruns and Payslips (read-only Salary Structures).',
   hr_payroll_manager: 'Full CRUD on Payruns, Payslips, Salary Structures, and Salary Rules.',
@@ -60,6 +68,8 @@ export function UsersPage() {
   const [departments, setDepartments] = useState<any[]>([]);
   const [isLoading, setIsLoading]     = useState(true);
   const [search, setSearch]           = useState('');
+  const [filterRole, setFilterRole]     = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
 
   // New user modal
   const [newOpen, setNewOpen]         = useState(false);
@@ -95,7 +105,7 @@ export function UsersPage() {
         role:       (u.role ?? '').toLowerCase() as UserRole,
         status:     (u.status ?? 'ACTIVE').toLowerCase(),
         createdAt:  u.createdAt,
-        lastLogin:  u.lastLogin ?? null,
+        lastLogin:  u.lastLoginAt ?? null,
         employeeId: u.employeeId ?? null,
         employee:   u.employee
           ? { fullName: `${u.employee.firstName} ${u.employee.lastName}` }
@@ -174,16 +184,49 @@ export function UsersPage() {
     }
   };
 
-  const filtered = users.filter((u) =>
-    [u.email, u.employee?.fullName ?? ''].join(' ').toLowerCase().includes(search.toLowerCase())
-  );
-
   const displayName = (u: SystemUser) =>
     u.employee?.fullName || u.email.split('@')[0];
 
+  // Roles are a fixed, meaningful set, so offer all of them rather than only
+  // the ones currently in use — "no admins yet" is itself worth being able to see.
+  const roleOptions = ROLES.map((r) => ({ value: r, label: getRoleLabel(r) }));
+
+  const matched = users.filter((u) => {
+    if (search && ![u.email, u.employee?.fullName ?? '']
+      .join(' ').toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterRole !== 'all' && u.role !== filterRole) return false;
+    if (filterStatus !== 'all' && u.status !== filterStatus) return false;
+    return true;
+  });
+
+  const sortAccessors: SortAccessors<SystemUser> = {
+    name:      (u) => displayName(u),
+    email:     (u) => u.email,
+    // Sorted by privilege level, not alphabetically — ROLES runs low to high.
+    role:      (u) => ROLES.indexOf(u.role),
+    status:    (u) => u.status,
+    lastLogin: (u) => (u.lastLogin ? new Date(u.lastLogin).getTime() : null),
+    createdAt: (u) => (u.createdAt ? new Date(u.createdAt).getTime() : null),
+  };
+
+  const sortOptions: SortOption[] = [
+    { key: 'name',      label: 'Name' },
+    { key: 'email',     label: 'Email' },
+    { key: 'role',      label: 'Role (access level)' },
+    { key: 'status',    label: 'Status' },
+    { key: 'lastLogin', label: 'Last login' },
+    { key: 'createdAt', label: 'Created' },
+  ];
+
+  const { sorted: filtered, sort, setSort, toggleSort } =
+    useTableSort(matched, sortAccessors, { key: 'name', dir: 'asc' });
+
+  const filtersActive = Boolean(search) || filterRole !== 'all' || filterStatus !== 'all';
+  const resetFilters = () => { setSearch(''); setFilterRole('all'); setFilterStatus('all'); };
+
   const columns: Column<SystemUser>[] = [
     {
-      key: 'email', header: 'User',
+      key: 'email', header: 'User', sortKey: 'name',
       render: (_, u) => (
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xs font-bold shrink-0">
@@ -197,7 +240,7 @@ export function UsersPage() {
       ),
     },
     {
-      key: 'role', header: 'Role',
+      key: 'role', header: 'Role', sortKey: 'role',
       render: (_, u) => (
         <span className={`text-xs font-semibold ${roleColor[u.role] ?? 'text-slate-600'}`}>
           {getRoleLabel(u.role)}
@@ -205,7 +248,7 @@ export function UsersPage() {
       ),
     },
     {
-      key: 'status', header: 'Status',
+      key: 'status', header: 'Status', sortKey: 'status',
       render: (_, u) => (
         <Badge variant={u.status === 'active' ? 'success' : 'default'} dot>
           {u.status.charAt(0).toUpperCase() + u.status.slice(1)}
@@ -213,7 +256,7 @@ export function UsersPage() {
       ),
     },
     {
-      key: 'lastLogin', header: 'Last Login',
+      key: 'lastLogin', header: 'Last Login', sortKey: 'lastLogin',
       render: (_, u) => (
         <span className="text-sm text-slate-600">
           {u.lastLogin
@@ -223,7 +266,7 @@ export function UsersPage() {
       ),
     },
     {
-      key: 'createdAt', header: 'Created',
+      key: 'createdAt', header: 'Created', sortKey: 'createdAt',
       render: (_, u) => <span className="text-sm text-slate-600">{formatDate(u.createdAt)}</span>,
     },
   ];
@@ -233,28 +276,56 @@ export function UsersPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">User Management</h1>
-          <p className="text-xs text-slate-500 mt-0.5">{filtered.length} system users</p>
+          <ResultCount shown={filtered.length} total={users.length} noun="system user" />
         </div>
         <button id="new-user-btn" onClick={openNew} className="btn-primary">
           <Plus size={14} /> New User
         </button>
       </div>
 
-      <div className="relative max-w-xs">
-        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
-          type="text" placeholder="Search by name or email…" value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="input-field pl-8 text-sm"
+      <TableToolbar>
+        <SearchInput
+          id="user-search"
+          value={search}
+          onChange={setSearch}
+          placeholder="Search by name or email…"
         />
-      </div>
+        <FilterSelect
+          id="user-role-filter"
+          value={filterRole}
+          onChange={setFilterRole}
+          options={roleOptions}
+          allLabel="All Roles"
+        />
+        <FilterSelect
+          id="user-status-filter"
+          value={filterStatus}
+          onChange={setFilterStatus}
+          options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]}
+          allLabel="All Statuses"
+        />
+        <SortMenu id="user-sort-btn" options={sortOptions} sort={sort} onChange={setSort} />
+        <ResetFiltersButton show={filtersActive} onReset={resetFilters} />
+      </TableToolbar>
 
       {isLoading ? (
         <div className="py-12 flex justify-center">
           <div className="animate-spin w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full" />
         </div>
       ) : (
-        <DataTable columns={columns} data={filtered} rowKey={(u) => u.id} onRowClick={openEdit} />
+        <DataTable
+          columns={columns}
+          data={filtered}
+          rowKey={(u) => u.id}
+          onRowClick={openEdit}
+          sort={sort}
+          onSortChange={toggleSort}
+          emptyState={
+            <p className="text-slate-400 text-sm">
+              {filtersActive ? 'No users match your filters.' : 'No users yet.'}
+            </p>
+          }
+        />
       )}
 
       {/* ── New User Modal ─────────────────────────────────────────────────── */}

@@ -196,15 +196,15 @@ export function EmployeeFormPage({ overrideId, selfView = false }: EmployeeFormP
         <div className="flex items-center gap-2 shrink-0">
           {employee && !isNew && (
             <>
-              <Link to={`/time-off/requests?employeeId=${employee.id}`} className="flex flex-col items-center justify-center px-3 py-2 min-w-[68px] bg-white border border-slate-200 rounded-md shadow-sm hover:border-primary-300 hover:bg-primary-50 transition-all text-center">
+              <Link to={`/time-off/requests?employeeId=${employee.id}&from=employee`} className="flex flex-col items-center justify-center px-3 py-2 min-w-[68px] bg-white border border-slate-200 rounded-md shadow-sm hover:border-primary-300 hover:bg-primary-50 transition-all text-center">
                 <span className="text-sm font-bold text-slate-900">{leaveCount}</span>
                 <span className="text-xs text-slate-500 flex items-center gap-1"><CalendarDays size={10} className="text-emerald-600" />Time Off</span>
               </Link>
-              <Link to={`/contracts?employeeId=${employee.id}`} className="flex flex-col items-center justify-center px-3 py-2 min-w-[68px] bg-white border border-slate-200 rounded-md shadow-sm hover:border-primary-300 hover:bg-primary-50 transition-all text-center">
+              <Link to={`/contracts?employeeId=${employee.id}&from=employee`} className="flex flex-col items-center justify-center px-3 py-2 min-w-[68px] bg-white border border-slate-200 rounded-md shadow-sm hover:border-primary-300 hover:bg-primary-50 transition-all text-center">
                 <span className="text-sm font-bold text-slate-900">{contractCount}</span>
                 <span className="text-xs text-slate-500 flex items-center gap-1"><FileText size={10} className="text-primary-600" />Contracts</span>
               </Link>
-              <Link to={`/attendance?employeeId=${employee.id}`} className="flex flex-col items-center justify-center px-3 py-2 min-w-[68px] bg-white border border-slate-200 rounded-md shadow-sm hover:border-primary-300 hover:bg-primary-50 transition-all text-center">
+              <Link to={`/attendance?employeeId=${employee.id}&from=employee`} className="flex flex-col items-center justify-center px-3 py-2 min-w-[68px] bg-white border border-slate-200 rounded-md shadow-sm hover:border-primary-300 hover:bg-primary-50 transition-all text-center">
                 <span className="text-sm font-bold text-slate-900">{attendanceCount}</span>
                 <span className="text-xs text-slate-500 flex items-center gap-1"><Clock size={10} className="text-indigo-600" />Attendance</span>
               </Link>
